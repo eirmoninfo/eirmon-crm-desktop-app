@@ -33,4 +33,8 @@ export const P = {
   CREATE_BUDGETS: "create budgets",
   EDIT_BUDGETS: "edit budgets",
   DELETE_BUDGETS: "delete budgets",
+  VIEW_TEAM_CHAT: "view team chat",
+  MANAGE_TEAM_CHAT: "manage team chat",
+  USE_EIRMON_AI: "use eirmon ai",
+  USE_AI_MARKETING_ASSISTANT: "use ai marketing assistant",
 };

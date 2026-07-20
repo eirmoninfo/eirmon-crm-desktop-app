@@ -15,6 +15,19 @@ import {
 } from "../src/utils/motivationNotifications";
 
 let trackerStarted = false;
+let offIdleBreakListener = null;
+
+function installIdleBreakListener() {
+  if (typeof window.api?.onIdleBreakChanged !== "function") return () => {};
+  return window.api.onIdleBreakChanged((payload) => {
+    if (typeof payload?.active !== "boolean") return;
+    window.dispatchEvent(
+      new CustomEvent("collabflow:attendance-changed", {
+        detail: { source: "idle-break", active: payload.active },
+      })
+    );
+  });
+}
 
 /**
  * One-time setup after login (Electron): tracker config, idle/break, screenshots.
@@ -34,6 +47,7 @@ export async function bootstrapElectron(token) {
 
   try {
     startMotivationNotificationListener();
+    offIdleBreakListener = installIdleBreakListener();
 
     if (!trackerStarted) {
       const config = await fetchTrackerConfig(token);
@@ -83,5 +97,9 @@ export function resetTrackerBootstrap() {
   stopIdleTracking();
   stopLiveScreenMonitoring();
   stopMotivationNotificationListener();
-  syncElectronBreakState(false);
+  if (typeof offIdleBreakListener === "function") {
+    offIdleBreakListener();
+    offIdleBreakListener = null;
+  }
+  syncElectronBreakState(false, { force: true });
 }

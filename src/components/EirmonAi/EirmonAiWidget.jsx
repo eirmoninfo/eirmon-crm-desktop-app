@@ -3,20 +3,26 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { FaComments, FaTimes, FaExpand } from "react-icons/fa";
 import { getToken } from "../../utils/storage";
-import ErimonLogo from "../ErimonLogo";
+import EirmonLogo from "../EirmonLogo";
 import { EIRMON_AI_NAME } from "../../utils/eirmonAiBrand";
 import { useEirmonAiChat } from "../../hooks/useEirmonAiChat";
 import EirmonAiChatPanel from "./EirmonAiChatPanel";
+import { P } from "../../constants/permissions";
+import { canAccessAny, isSuperAdminUser } from "../../utils/permissions";
 
-function readUserName() {
+function readUser() {
   try {
     const raw = localStorage.getItem("user");
-    if (!raw) return "";
-    const u = JSON.parse(raw);
-    return u?.user?.name ?? u?.name ?? "";
+    if (!raw) return null;
+    return JSON.parse(raw);
   } catch {
-    return "";
+    return null;
   }
+}
+
+function readUserName() {
+  const u = readUser();
+  return u?.user?.name ?? u?.name ?? "";
 }
 
 export default function EirmonAiWidget() {
@@ -24,6 +30,7 @@ export default function EirmonAiWidget() {
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const [userName, setUserName] = useState(readUserName);
+  const [allowed, setAllowed] = useState(false);
   const chat = useEirmonAiChat({ userName });
 
   const isFullPage = location.pathname.startsWith("/eirmon-ai");
@@ -31,9 +38,14 @@ export default function EirmonAiWidget() {
 
   useEffect(() => {
     setUserName(readUserName());
+    const user = readUser();
+    setAllowed(
+      isSuperAdminUser(user) ||
+        canAccessAny(user, [P.USE_EIRMON_AI, P.USE_AI_MARKETING_ASSISTANT])
+    );
   }, [location.pathname]);
 
-  if (!loggedIn || isFullPage) return null;
+  if (!loggedIn || isFullPage || !allowed) return null;
 
   return (
     <>
@@ -47,7 +59,7 @@ export default function EirmonAiWidget() {
           aria-label={`Open ${EIRMON_AI_NAME}`}
           title={EIRMON_AI_NAME}
         >
-          <ErimonLogo
+          <EirmonLogo
             size={40}
             className="!rounded-full ring-2 ring-white/25"
             aria-label={EIRMON_AI_NAME}

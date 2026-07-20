@@ -446,15 +446,15 @@ export default function TeamChat() {
                   onChange={(e) => setSearchQ(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && runSearch()}
                   placeholder="Search people & channels…"
-                  className="w-full rounded-xl border-0 bg-white/95 py-2.5 pl-9 pr-9 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-erimon-400"
+                  className="w-full rounded-xl border-0 bg-white/95 py-2.5 pl-9 pr-9 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-eirmon-400"
                 />
                 {searching ? (
-                  <FaSpinner className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-erimon-600" />
+                  <FaSpinner className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-eirmon-600" />
                 ) : searchQ.trim() ? (
                   <button
                     type="button"
                     onClick={runSearch}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-0.5 text-[10px] font-bold text-erimon-700 hover:bg-erimon-50"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-0.5 text-[10px] font-bold text-eirmon-700 hover:bg-eirmon-50"
                   >
                     Go
                   </button>
@@ -463,9 +463,9 @@ export default function TeamChat() {
             </div>
 
             {searchResults != null && (
-              <div className="border-b border-erimon-100 bg-erimon-50/80 px-3 py-2">
+              <div className="border-b border-eirmon-100 bg-eirmon-50/80 px-3 py-2">
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-erimon-800">
+                  <span className="text-xs font-semibold text-eirmon-800">
                     Search
                   </span>
                   <button
@@ -510,7 +510,7 @@ export default function TeamChat() {
                   onClick={() => setSidebarTab(tab.id)}
                   className={`flex-1 rounded-t-lg px-3 py-2 text-xs font-semibold transition ${
                     sidebarTab === tab.id
-                      ? "bg-white text-erimon-700 shadow-sm"
+                      ? "bg-white text-eirmon-700 shadow-sm"
                       : "text-slate-500 hover:text-slate-700"
                   }`}
                 >
@@ -522,7 +522,7 @@ export default function TeamChat() {
             <div className="flex-1 overflow-y-auto py-2">
               {loading ? (
                 <div className="flex flex-col items-center gap-3 py-12">
-                  <FaSpinner className="animate-spin text-2xl text-erimon-600" />
+                  <FaSpinner className="animate-spin text-2xl text-eirmon-600" />
                   <p className="text-sm text-slate-500">Loading conversations…</p>
                 </div>
               ) : sidebarTab === "people" ? (
@@ -572,7 +572,7 @@ export default function TeamChat() {
                         <button
                           type="button"
                           onClick={() => setCreateOpen(true)}
-                          className="mt-2 font-semibold text-erimon-600 hover:underline"
+                          className="mt-2 font-semibold text-eirmon-600 hover:underline"
                         >
                           Create one
                         </button>
@@ -618,7 +618,7 @@ export default function TeamChat() {
                         Direct
                       </span>
                     ) : (
-                      <span className="rounded-full bg-erimon-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-erimon-700 ring-1 ring-erimon-200/80">
+                      <span className="rounded-full bg-eirmon-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-eirmon-700 ring-1 ring-eirmon-200/80">
                         Channel
                       </span>
                     )}
@@ -653,7 +653,7 @@ export default function TeamChat() {
                               append: true,
                             });
                         }}
-                        className="rounded-full bg-white/90 px-4 py-1.5 text-xs font-semibold text-erimon-700 shadow-sm ring-1 ring-slate-200/80 hover:bg-erimon-50 disabled:opacity-50"
+                        className="rounded-full bg-white/90 px-4 py-1.5 text-xs font-semibold text-eirmon-700 shadow-sm ring-1 ring-slate-200/80 hover:bg-eirmon-50 disabled:opacity-50"
                       >
                         {messagesLoading ? "Loading…" : "Load older messages"}
                       </button>
@@ -662,7 +662,7 @@ export default function TeamChat() {
 
                   {messagesLoading && messages.length === 0 ? (
                     <div className="flex justify-center py-16">
-                      <FaSpinner className="animate-spin text-2xl text-erimon-600" />
+                      <FaSpinner className="animate-spin text-2xl text-eirmon-600" />
                     </div>
                   ) : messages.length === 0 ? (
                     <div className="py-16 text-center">
@@ -702,7 +702,7 @@ export default function TeamChat() {
                 <div className="border-t border-white/10 bg-white/5 p-4 backdrop-blur-sm sm:px-6">
                   <form onSubmit={handleSend} className="team-chat-composer p-2">
                     {file ? (
-                      <div className="mb-2 flex items-center justify-between rounded-lg bg-erimon-50 px-3 py-2 text-xs text-erimon-900">
+                      <div className="mb-2 flex items-center justify-between rounded-lg bg-eirmon-50 px-3 py-2 text-xs text-eirmon-900">
                         <span className="truncate font-medium">{file.name}</span>
                         <button
                           type="button"
@@ -711,7 +711,7 @@ export default function TeamChat() {
                             if (fileInputRef.current)
                               fileInputRef.current.value = "";
                           }}
-                          className="text-erimon-700 hover:text-erimon-900"
+                          className="text-eirmon-700 hover:text-eirmon-900"
                         >
                           <FaTimes />
                         </button>
@@ -742,12 +742,12 @@ export default function TeamChat() {
                           }
                         }}
                         placeholder="Write a message… (Enter to send)"
-                        className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border-0 bg-slate-50/80 px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-erimon-400/60"
+                        className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border-0 bg-slate-50/80 px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-eirmon-400/60"
                       />
                       <button
                         type="submit"
                         disabled={sending || (!composer.trim() && !file)}
-                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-erimon-600 to-erimon-800 text-white shadow-md transition hover:from-erimon-700 hover:to-erimon-900 disabled:opacity-40"
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-eirmon-600 to-eirmon-800 text-white shadow-md transition hover:from-eirmon-700 hover:to-eirmon-900 disabled:opacity-40"
                         title="Send"
                       >
                         {sending ? (

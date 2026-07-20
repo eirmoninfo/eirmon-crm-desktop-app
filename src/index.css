@@ -296,7 +296,7 @@
     @apply h-10 w-10 items-center justify-center p-0;
   }
 
-  .erimon-toast {
+  .eirmon-toast {
     backdrop-filter: blur(24px) !important;
     -webkit-backdrop-filter: blur(24px) !important;
     background: var(--theme-glass) !important;
@@ -305,7 +305,7 @@
     box-shadow: var(--theme-shadow-sm) !important;
   }
 
-  .erimon-toast-logo {
+  .eirmon-toast-logo {
     display: block;
     width: 20px;
     height: 20px;
@@ -1174,7 +1174,7 @@
     [class*="bg-gradient"]
   ),
   [data-theme="light"] .app-workspace [class*="from-slate-9"] :is(h1, h2, h3, p, span, button),
-  [data-theme="light"] .app-workspace [class*="from-erimon"] :is(h1, h2, h3, p, span),
+  [data-theme="light"] .app-workspace [class*="from-eirmon"] :is(h1, h2, h3, p, span),
   [data-theme="light"] .app-workspace .theme-keep-white,
   [data-theme="light"] .app-workspace .theme-keep-white * {
     color: #fff !important;

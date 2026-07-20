@@ -18,7 +18,7 @@ import {
   PanelLeft,
   X,
 } from "lucide-react";
-import ErimonLogo from "./ErimonLogo";
+import EirmonLogo from "./EirmonLogo";
 import { getCurrentUser } from "../api/auth.api";
 import { P } from "../constants/permissions";
 import { canAccessAny, getUserPayload } from "../utils/permissions";
@@ -142,13 +142,13 @@ export default function Sidebar({
         name: "Chat",
         iconKey: "chat",
         href: "/team-chat",
-        anyOf: [],
+        anyOf: [P.VIEW_TEAM_CHAT, P.MANAGE_TEAM_CHAT],
       },
       {
         name: "AI Assistant",
         iconKey: "ai",
         href: "/eirmon-ai",
-        anyOf: [],
+        anyOf: [P.USE_EIRMON_AI, P.USE_AI_MARKETING_ASSISTANT],
       },
       {
         name: "Expenses",
@@ -215,7 +215,7 @@ export default function Sidebar({
   const renderIcon = (key, className = "h-5 w-5 shrink-0") => {
     if (key === "ai") {
       const size = className.includes("h-4") ? 16 : 20;
-      return <ErimonLogo size={size} className="shrink-0 !rounded-md" />;
+      return <EirmonLogo size={size} className="shrink-0 !rounded-md" />;
     }
     const Icon = ICONS[key] || LayoutDashboard;
     return <Icon className={className} strokeWidth={1.75} />;
@@ -231,7 +231,7 @@ export default function Sidebar({
     >
       <div className="flex items-center justify-between gap-2 p-4">
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <ErimonLogo size={36} className="shrink-0" />
+          <EirmonLogo size={36} className="shrink-0" />
           <AnimatePresence>
             {showExpanded ? (
               <motion.div
@@ -241,7 +241,7 @@ export default function Sidebar({
                 className="min-w-0 overflow-hidden"
               >
                 <h1 className="truncate text-sm font-semibold tracking-tight">
-                  Erimon CRM
+                  Eirmon CRM
                 </h1>
                 <p className="text-[10px] font-medium uppercase tracking-widest text-glass-subtle">
                   Workspace

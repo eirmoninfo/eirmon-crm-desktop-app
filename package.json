@@ -1,9 +1,9 @@
 {
-  "name": "erimon-crm",
+  "name": "eirmon-crm",
   "private": true,
   "version": "0.1.6",
-  "description": "Erimon CRM desktop application",
-  "author": "Erimon Solutions <support@eirmonsolutions.com>",
+  "description": "Eirmon CRM desktop application",
+  "author": "Eirmon Solutions <support@eirmonsolutions.com>",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -11,14 +11,18 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "electron:dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "dev:electron": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "env -u ELECTRON_RUN_AS_NODE concurrently -k \"vite\" \"wait-on http://localhost:5173 && env -u ELECTRON_RUN_AS_NODE electron .\"",
+    "dev:electron": "env -u ELECTRON_RUN_AS_NODE concurrently \"vite\" \"wait-on http://localhost:5173 && env -u ELECTRON_RUN_AS_NODE electron .\"",
     "electron:mac": "vite build && electron-builder --mac",
     "electron:win": "vite build && electron-builder --win",
     "electron:linux": "vite build && electron-builder --linux",
     "electron:chromebook": "vite build && electron-builder --linux AppImage deb --x64",
     "postinstall": "electron-builder install-app-deps",
-    "release": "vite build && electron-builder --publish always"
+    "release": "vite build && electron-builder --publish always",
+    "release:win": "vite build && electron-builder --win --publish always",
+    "release:win:upload": "bash scripts/release-win.sh",
+    "release:mac": "vite build && electron-builder --mac --publish always",
+    "release:linux": "vite build && electron-builder --linux --publish always"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -60,14 +64,15 @@
     "wait-on": "^9.0.3"
   },
   "build": {
-    "appId": "com.erimon.crm",
-    "productName": "Erimon CRM",
+    "appId": "com.eirmon.crm",
+    "productName": "Eirmon CRM",
     "icon": "public/logo.png",
     "publish": [
       {
         "provider": "github",
-        "owner": "eirmonsolutions",
-        "repo": "eirmon_desktop"
+        "owner": "eirmoninfo",
+        "repo": "eirmon-crm-desktop-app",
+        "releaseType": "release"
       }
     ],
     "directories": {
@@ -77,10 +82,27 @@
     "asarUnpack": [
       "**/*.node"
     ],
+    "generateUpdatesFilesForAllChannels": true,
     "mac": {
       "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
       "extendInfo": {
-        "NSLocationWhenInUseUsageDescription": "Erimon CRM uses your location to show local weather in the header."
+        "NSLocationWhenInUseUsageDescription": "Eirmon CRM uses your location to show local weather in the header."
       }
     },
     "win": {
@@ -110,12 +132,12 @@
         }
       ],
       "category": "Office",
-      "maintainer": "Erimon Solutions <support@eirmonsolutions.com>",
+      "maintainer": "Eirmon Solutions <support@eirmonsolutions.com>",
       "artifactName": "${productName}-${version}.${ext}",
       "desktop": {
         "entry": {
-          "Name": "Erimon CRM",
-          "Comment": "Erimon CRM desktop application",
+          "Name": "Eirmon CRM",
+          "Comment": "Eirmon CRM desktop application",
           "Categories": "Office;ProjectManagement;"
         }
       }

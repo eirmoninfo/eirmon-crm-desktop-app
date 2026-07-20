@@ -52,7 +52,7 @@ function App() {
         toastOptions={{
           duration: 5000,
           icon: getToastLogoIcon(),
-          className: "erimon-toast",
+          className: "eirmon-toast",
         }}
       />
     <Routes>
@@ -251,7 +251,7 @@ function App() {
         path="/team-chat"
         element={
           <ProtectedRoute>
-            <PermissionRoute anyOf={[]}>
+            <PermissionRoute anyOf={[P.VIEW_TEAM_CHAT, P.MANAGE_TEAM_CHAT]}>
               <TeamChat />
             </PermissionRoute>
           </ProtectedRoute>
@@ -261,7 +261,7 @@ function App() {
         path="/team-chat/:channelId"
         element={
           <ProtectedRoute>
-            <PermissionRoute anyOf={[]}>
+            <PermissionRoute anyOf={[P.VIEW_TEAM_CHAT, P.MANAGE_TEAM_CHAT]}>
               <TeamChat />
             </PermissionRoute>
           </ProtectedRoute>
@@ -271,7 +271,7 @@ function App() {
         path="/eirmon-ai"
         element={
           <ProtectedRoute>
-            <PermissionRoute anyOf={[]}>
+            <PermissionRoute anyOf={[P.USE_EIRMON_AI, P.USE_AI_MARKETING_ASSISTANT]}>
               <EirmonAi />
             </PermissionRoute>
           </ProtectedRoute>

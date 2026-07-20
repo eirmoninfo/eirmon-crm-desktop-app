@@ -67,7 +67,7 @@ function helpOverview() {
     (f) => `• **${f.title}** — ${f.summary}`
   ).join("\n");
   return {
-    text: `Here's what I can help you with in **Erimon CRM**:\n\n${lines}\n\nAsk about any topic, e.g. "How do I punch in?" or "Tasks board help".`,
+    text: `Here's what I can help you with in **Eirmon CRM**:\n\n${lines}\n\nAsk about any topic, e.g. "How do I punch in?" or "Tasks board help".`,
     actions: EIRMON_AI_FEATURES.map((f) => ({
       type: "navigate",
       label: f.title,
@@ -125,13 +125,13 @@ export function generateEirmonAiReply(message, { userName, pathname } = {}) {
 
   if (/thank|thanks|dhanyavad|shukriya/.test(query)) {
     return {
-      text: "You're welcome! Ask anytime if you need more help with Erimon CRM.",
+      text: "You're welcome! Ask anytime if you need more help with Eirmon CRM.",
       prompts: ["How do I punch in?", "Explain the Tasks board"],
     };
   }
 
   return {
-    text: `I'm not sure about that yet, but I can help with Erimon CRM features:
+    text: `I'm not sure about that yet, but I can help with Eirmon CRM features:
 
 ${EIRMON_AI_FEATURES.map((f) => `• **${f.title}**`).join("\n")}
 

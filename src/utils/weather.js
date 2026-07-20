@@ -1,4 +1,4 @@
-const CACHE_KEY = "erimon.weather.v1";
+const CACHE_KEY = "eirmon.weather.v1";
 const CACHE_TTL_MS = 20 * 60 * 1000;
 
 const WMO_LABELS = {

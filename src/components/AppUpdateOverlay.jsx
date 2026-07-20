@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ERIMON_LOGO_SRC } from "../utils/appBrand";
+import { EIRMON_LOGO_SRC } from "../utils/appBrand";
 
 function formatBytes(bytes) {
   if (!bytes || bytes <= 0) return "0 B";
@@ -92,7 +92,7 @@ export default function AppUpdateOverlay() {
       <div className="mx-auto mt-10 w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
         <div className="flex items-center gap-3">
           <img
-            src={ERIMON_LOGO_SRC}
+            src={EIRMON_LOGO_SRC}
             alt=""
             className="h-10 w-10 rounded-xl object-contain ring-1 ring-slate-200/80"
           />

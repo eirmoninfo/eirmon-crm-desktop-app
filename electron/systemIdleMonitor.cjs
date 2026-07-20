@@ -9,9 +9,12 @@
 const { powerMonitor } = require("electron");
 
 const POLL_MS = 15 * 1000;
+const ACTIVE_BREAK_POLL_MS = 5 * 1000;
 const DEDUPE_MS = 4000;
 
 let pollTimer = null;
+let currentPollMs = POLL_MS;
+let onBreakChange = null;
 let trackingToken = null;
 let idleLimitSec = 120;
 let enableIdleTracking = true;
@@ -53,7 +56,9 @@ async function postBreakStart() {
     headers: {
       Authorization: `Bearer ${trackingToken}`,
       Accept: "application/json",
+      "Content-Type": "application/json",
     },
+    body: "{}",
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -74,7 +79,9 @@ async function postBreakEnd() {
     headers: {
       Authorization: `Bearer ${trackingToken}`,
       Accept: "application/json",
+      "Content-Type": "application/json",
     },
+    body: "{}",
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -83,6 +90,23 @@ async function postBreakEnd() {
   }
   lastEndAt = Date.now();
   return true;
+}
+
+function emitBreakChange(active) {
+  if (typeof onBreakChange !== "function") return;
+  try {
+    onBreakChange({ active: !!active, source: "idle" });
+  } catch (e) {
+    console.warn("[IdleMonitor] onBreakChange failed:", e.message);
+  }
+}
+
+function refreshPollingInterval() {
+  const nextMs =
+    breakActive && idleInducedBreak ? ACTIVE_BREAK_POLL_MS : POLL_MS;
+  if (nextMs === currentPollMs && pollTimer) return;
+  currentPollMs = nextMs;
+  startPolling();
 }
 
 async function tryIdleAutoStart() {
@@ -98,6 +122,8 @@ async function tryIdleAutoStart() {
     breakActive = true;
     idleInducedBreak = true;
     manualBreak = false;
+    refreshPollingInterval();
+    emitBreakChange(true);
     console.log("[IdleMonitor] Auto break started (system idle)");
   } finally {
     idleStartInFlight = false;
@@ -116,6 +142,8 @@ async function tryIdleAutoEnd() {
     breakActive = false;
     idleInducedBreak = false;
     manualBreak = false;
+    refreshPollingInterval();
+    emitBreakChange(false);
     console.log("[IdleMonitor] Auto break ended (user active system-wide)");
   } finally {
     idleEndInFlight = false;
@@ -137,7 +165,7 @@ function tick() {
 
 function startPolling() {
   stopPolling();
-  pollTimer = setInterval(() => tick(), POLL_MS);
+  pollTimer = setInterval(() => tick(), currentPollMs);
 }
 
 function stopPolling() {
@@ -169,11 +197,15 @@ function attachPowerResumeOnce() {
  * @param {object} [opts] rest — tracker config (idle_time_limit, enable_idle_tracking, …)
  */
 function configure(opts) {
-  const { apiUrl, fetch, token, ...config } = opts;
+  const { apiUrl, fetch, token, onBreakChange: breakChangeCb, ...config } =
+    opts;
 
   apiUrlFn = apiUrl;
   fetchFn = fetch;
   trackingToken = token || null;
+  onBreakChange =
+    typeof breakChangeCb === "function" ? breakChangeCb : null;
+  currentPollMs = POLL_MS;
 
   enableIdleTracking = config.enable_idle_tracking !== false;
   enableBreakTracking = config.enable_break_tracking !== false;
@@ -205,7 +237,9 @@ function configure(opts) {
     idleLimitSec / 60,
     "min · poll every",
     POLL_MS / 1000,
-    "s"
+    "s (",
+    ACTIVE_BREAK_POLL_MS / 1000,
+    "s while idle break active)"
   );
 
   tick();
@@ -214,6 +248,8 @@ function configure(opts) {
 
 function stop() {
   stopPolling();
+  currentPollMs = POLL_MS;
+  onBreakChange = null;
   trackingToken = null;
   enableIdleTracking = true;
   enableBreakTracking = true;
@@ -224,11 +260,17 @@ function stop() {
   fetchFn = null;
 }
 
-function syncFromRenderer(active) {
+function syncFromRenderer(active, force = false) {
+  if (!active && idleInducedBreak && breakActive && !force) {
+    // Renderer may be stale (page mounted before attendance loaded).
+    return;
+  }
+
   breakActive = !!active;
   if (!active) {
     idleInducedBreak = false;
     manualBreak = false;
+    refreshPollingInterval();
   } else if (!idleInducedBreak) {
     manualBreak = true;
   }

@@ -1,6 +1,6 @@
 /** Eirmon AI assistant — same mark as CRM (`public/eirmon_ai_logo.png`). */
 export {
-  ERIMON_LOGO_SRC as EIRMON_AI_LOGO_SRC,
+  EIRMON_LOGO_SRC as EIRMON_AI_LOGO_SRC,
   getLogoAbsoluteUrl as getEirmonAiLogoUrl,
 } from "./appBrand";
 

@@ -13,13 +13,21 @@ const {
 const path = require("path");
 const fs = require("fs");
 const log = require("electron-log");
-const { autoUpdater } = require("electron-updater");
 
 const systemIdleMonitor = require("./systemIdleMonitor.cjs");
 const { listPrinters } = require("./printers-list.cjs");
 
+/** Lazy-load: destructuring autoUpdater at require-time crashes before app is ready. */
+let autoUpdater = null;
+function getAutoUpdater() {
+  if (!autoUpdater) {
+    ({ autoUpdater } = require("electron-updater"));
+  }
+  return autoUpdater;
+}
+
 /** Without this, the macOS menu bar shows "Electron" while running `electron .` in dev. */
-app.setName("Erimon CRM");
+app.setName("Eirmon CRM");
 
 function resolveAppIconPath() {
   const candidates = [
@@ -146,7 +154,7 @@ function registerTakeScreenshotIpc() {
 
     const hint =
       process.platform === "darwin"
-        ? "Enable Screen Recording for Electron (dev) or Erimon CRM in System Settings → Privacy & Security, then fully quit and restart this app."
+        ? "Enable Screen Recording for Electron (dev) or Eirmon CRM in System Settings → Privacy & Security, then fully quit and restart this app."
         : "Check OS screen / display capture permissions, then restart the app.";
     throw new Error(
       [lastErr?.message || "Screen capture failed.", hint].filter(Boolean).join(" ")
@@ -231,15 +239,21 @@ function sendUpdaterEvent(payload) {
 }
 
 function initAutoUpdater() {
-  autoUpdater.logger = log;
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  const updater = getAutoUpdater();
+  updater.logger = log;
+  updater.autoDownload = true;
+  updater.autoInstallOnAppQuit = true;
+  updater.allowDowngrade = false;
 
-  autoUpdater.on("checking-for-update", () => {
+  log.info(
+    "[autoUpdater] Checking GitHub releases: eirmoninfo/eirmon-crm-desktop-app"
+  );
+
+  updater.on("checking-for-update", () => {
     sendUpdaterEvent({ type: "checking" });
   });
 
-  autoUpdater.on("update-available", (info) => {
+  updater.on("update-available", (info) => {
     sendUpdaterEvent({
       type: "available",
       version: info?.version || "",
@@ -247,14 +261,14 @@ function initAutoUpdater() {
     });
   });
 
-  autoUpdater.on("update-not-available", (info) => {
+  updater.on("update-not-available", (info) => {
     sendUpdaterEvent({
       type: "not-available",
       version: info?.version || "",
     });
   });
 
-  autoUpdater.on("download-progress", (progressObj) => {
+  updater.on("download-progress", (progressObj) => {
     const percent = Number.isFinite(progressObj?.percent)
       ? Number(progressObj.percent.toFixed(1))
       : 0;
@@ -267,7 +281,7 @@ function initAutoUpdater() {
     });
   });
 
-  autoUpdater.on("update-downloaded", (info) => {
+  updater.on("update-downloaded", (info) => {
     sendUpdaterEvent({
       type: "downloaded",
       version: info?.version || "",
@@ -277,11 +291,11 @@ function initAutoUpdater() {
     setTimeout(() => {
       skipCloseGuard = true;
       quitConfirmed = true;
-      autoUpdater.quitAndInstall(false, true);
+      getAutoUpdater().quitAndInstall(false, true);
     }, 2000);
   });
 
-  autoUpdater.on("error", (error) => {
+  updater.on("error", (error) => {
     log.error("autoUpdater error", error);
     sendUpdaterEvent({
       type: "error",
@@ -298,14 +312,16 @@ function clearUpdaterTimer() {
 }
 
 function checkForUpdatesSafe() {
-  return autoUpdater.checkForUpdates().catch((err) => {
-    log.error("checkForUpdates failed", err);
-    sendUpdaterEvent({
-      type: "error",
-      message: err?.message || "Could not check for updates.",
+  return getAutoUpdater()
+    .checkForUpdates()
+    .catch((err) => {
+      log.error("checkForUpdates failed", err);
+      sendUpdaterEvent({
+        type: "error",
+        message: err?.message || "Could not check for updates.",
+      });
+      throw err;
     });
-    throw err;
-  });
 }
 
 function schedulePeriodicUpdateChecks() {
@@ -377,7 +393,7 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
-    title: "Erimon CRM",
+    title: "Eirmon CRM",
     ...(appIcon ? { icon: appIcon } : {}),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -399,7 +415,7 @@ function createWindow() {
 
   win.webContents.on("page-title-updated", (event) => {
     event.preventDefault();
-    win.setTitle("Erimon CRM");
+    win.setTitle("Eirmon CRM");
   });
 
   if (app.isPackaged) {
@@ -439,9 +455,9 @@ app.whenReady().then(() => {
     }
     try {
       app.setAboutPanelOptions({
-        applicationName: "Erimon CRM",
+        applicationName: "Eirmon CRM",
         applicationVersion: app.getVersion(),
-        copyright: "Erimon Solutions",
+        copyright: "Eirmon Solutions",
       });
     } catch {
       /* ignore */
@@ -534,6 +550,11 @@ async function assertPrinterExists(printerName, transport) {
   }
 }
 
+function sendIdleBreakEvent(payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("idle-break:changed", payload);
+}
+
 // ===============================
 // System idle + break (see systemIdleMonitor.cjs)
 // ===============================
@@ -550,6 +571,7 @@ ipcMain.on("idle-monitor-config", (_, payload) => {
   systemIdleMonitor.configure({
     apiUrl: resolveUrl,
     fetch,
+    onBreakChange: sendIdleBreakEvent,
     ...rest,
   });
 });
@@ -558,8 +580,14 @@ ipcMain.on("idle-monitor-stop", () => {
   systemIdleMonitor.stop();
 });
 
-ipcMain.on("break-state-sync", (_, active) => {
-  systemIdleMonitor.syncFromRenderer(!!active);
+ipcMain.on("break-state-sync", (_, payload) => {
+  if (typeof payload === "boolean") {
+    systemIdleMonitor.syncFromRenderer(!!payload);
+    return;
+  }
+  const active = !!payload?.active;
+  const force = payload?.force === true;
+  systemIdleMonitor.syncFromRenderer(active, force);
 });
 
 ipcMain.on("break-start", (_, token) => {
@@ -594,7 +622,7 @@ ipcMain.handle("app-updater:install-now", () => {
   try {
     skipCloseGuard = true;
     quitConfirmed = true;
-    autoUpdater.quitAndInstall(false, true);
+    getAutoUpdater().quitAndInstall(false, true);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err?.message || "Install failed." };
@@ -602,7 +630,7 @@ ipcMain.handle("app-updater:install-now", () => {
 });
 
 function showNativeAppNotification(payload = {}) {
-  const title = String(payload?.title || "Erimon CRM").slice(0, 100);
+  const title = String(payload?.title || "Eirmon CRM").slice(0, 100);
   const bodyText = String(payload?.body || "").slice(0, 500);
   if (!Notification.isSupported()) {
     return { ok: false, reason: "not_supported" };

@@ -19,8 +19,18 @@ contextBridge.exposeInMainWorld("api", {
   },
 
   // Break sync
-  syncBreakState: (hasActiveBreak) =>
-    ipcRenderer.send("break-state-sync", hasActiveBreak),
+  syncBreakState: (hasActiveBreak, opts) =>
+    ipcRenderer.send("break-state-sync", {
+      active: !!hasActiveBreak,
+      force: opts?.force === true,
+    }),
+
+  onIdleBreakChanged: (callback) => {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on("idle-break:changed", handler);
+    return () => ipcRenderer.removeListener("idle-break:changed", handler);
+  },
 
   // Idle monitor
   configureIdleMonitor: (payload) =>

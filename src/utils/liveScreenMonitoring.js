@@ -217,7 +217,7 @@ async function captureScreenStream() {
   }
 
   throw new Error(
-    "Screen capture failed. On macOS enable Screen Recording for Erimon CRM in System Settings → Privacy."
+    "Screen capture failed. On macOS enable Screen Recording for Eirmon CRM in System Settings → Privacy."
   );
 }
 

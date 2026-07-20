@@ -10,18 +10,18 @@ export function publicAssetUrl(assetPath) {
 }
 
 /** Primary CRM mark — `public/eirmon_ai_logo.png`. */
-export const ERIMON_LOGO_SRC = publicAssetUrl("eirmon_ai_logo.png");
+export const EIRMON_LOGO_SRC = publicAssetUrl("eirmon_ai_logo.png");
 
 /** Fallback when AI logo is missing — `public/logo.png`. */
-export const ERIMON_LOGO_FALLBACK_SRC = publicAssetUrl("logo.png");
+export const EIRMON_LOGO_FALLBACK_SRC = publicAssetUrl("logo.png");
 
 /** Absolute URL for browser `Notification` API and external references. */
 export function getLogoAbsoluteUrl() {
-  if (typeof window === "undefined") return ERIMON_LOGO_SRC;
+  if (typeof window === "undefined") return EIRMON_LOGO_SRC;
   try {
-    return new URL(ERIMON_LOGO_SRC, window.location.href).href;
+    return new URL(EIRMON_LOGO_SRC, window.location.href).href;
   } catch {
-    return ERIMON_LOGO_SRC;
+    return EIRMON_LOGO_SRC;
   }
 }
 
@@ -30,10 +30,10 @@ export function getLogoAbsoluteUrl() {
  */
 export function getToastLogoIcon() {
   return createElement("img", {
-    src: ERIMON_LOGO_SRC,
+    src: EIRMON_LOGO_SRC,
     alt: "",
     "aria-hidden": true,
-    className: "erimon-toast-logo",
+    className: "eirmon-toast-logo",
     width: 20,
     height: 20,
     onError: (e) => {
@@ -41,7 +41,7 @@ export function getToastLogoIcon() {
       if (!el) return;
       if (!el.dataset.fallback) {
         el.dataset.fallback = "1";
-        el.src = ERIMON_LOGO_FALLBACK_SRC;
+        el.src = EIRMON_LOGO_FALLBACK_SRC;
       }
     },
   });

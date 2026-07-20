@@ -4,7 +4,7 @@ import { login } from "../../api/auth.api";
 import { useNavigate } from "react-router-dom";
 import { getToken } from "../../utils/storage";
 import { bootstrapElectron } from "../../../electron/electronBootstrap";
-import ErimonLogo from "../ErimonLogo";
+import EirmonLogo from "../EirmonLogo";
 
 function errorMessage(err) {
   if (typeof err === "string") return err;
@@ -35,7 +35,7 @@ export default function LoginForm() {
       await login({
         email,
         password,
-        device_name: "Erimon CRM Desktop",
+        device_name: "Eirmon CRM Desktop",
       });
 
       const t = getToken();
@@ -54,9 +54,9 @@ export default function LoginForm() {
     <div className="auth-card">
       <div className="auth-card-brand">
         <div className="auth-card-logo-wrap">
-          <ErimonLogo size={72} className="shadow-none ring-0" />
+          <EirmonLogo size={72} className="shadow-none ring-0" />
         </div>
-        <p className="auth-card-kicker">Erimon Solutions</p>
+        <p className="auth-card-kicker">Eirmon Solutions</p>
         <h2 className="auth-card-title">Welcome back</h2>
         <p className="auth-card-subtitle">
           Enter your credentials to access your workspace.

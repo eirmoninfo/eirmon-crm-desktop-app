@@ -1,4 +1,5 @@
-export const THEME_STORAGE_KEY = "erimon.theme";
+export const THEME_STORAGE_KEY = "eirmon.theme";
+const LEGACY_THEME_STORAGE_KEY = "erimon.theme";
 
 export const THEMES = {
   dark: "dark",
@@ -7,7 +8,9 @@ export const THEMES = {
 
 export function getStoredTheme() {
   try {
-    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    const stored =
+      localStorage.getItem(THEME_STORAGE_KEY) ??
+      localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
     if (stored === THEMES.light || stored === THEMES.dark) return stored;
   } catch {
     /* ignore */

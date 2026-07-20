@@ -1,5 +1,5 @@
 import "../../assets/styles/auth.css";
-import ErimonLogo from "../ErimonLogo";
+import EirmonLogo from "../EirmonLogo";
 import ThemeToggle from "../ThemeToggle";
 import { FaBolt, FaCheck, FaLock } from "react-icons/fa";
 
@@ -15,10 +15,10 @@ export default function AuthLayout({ children }) {
         <div className="auth-brand-panel-inner">
           <header className="auth-brand-header">
             <div className="auth-brand-header-logo">
-              <ErimonLogo size={44} />
+              <EirmonLogo size={44} />
             </div>
             <div className="auth-brand-header-text">
-              <div className="auth-brand-header-title">Erimon Solutions</div>
+              <div className="auth-brand-header-title">Eirmon Solutions</div>
               <p className="auth-brand-header-sub">Work smarter together</p>
             </div>
           </header>
@@ -26,7 +26,7 @@ export default function AuthLayout({ children }) {
           <div className="auth-brand-body">
             <h1 className="auth-brand-hero-title">
               Sign in to{" "}
-              <span className="auth-brand-hero-accent">Erimon CRM</span>
+              <span className="auth-brand-hero-accent">Eirmon CRM</span>
             </h1>
             <p className="auth-brand-hero-text">
               Your central workspace for projects, attendance, budgets, and team
@@ -55,7 +55,7 @@ export default function AuthLayout({ children }) {
           </div>
 
           <footer className="auth-brand-footer">
-            © {new Date().getFullYear()} Erimon Solutions. All rights reserved.
+            © {new Date().getFullYear()} Eirmon Solutions. All rights reserved.
           </footer>
         </div>
       </aside>

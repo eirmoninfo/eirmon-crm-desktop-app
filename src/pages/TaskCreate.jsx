@@ -207,6 +207,14 @@ export default function TaskCreate() {
     loadTodayAttendance();
   }, [loadTodayAttendance]);
 
+  useEffect(() => {
+    const onAttendanceChanged = () => loadTodayAttendance();
+    window.addEventListener("collabflow:attendance-changed", onAttendanceChanged);
+    return () => {
+      window.removeEventListener("collabflow:attendance-changed", onAttendanceChanged);
+    };
+  }, [loadTodayAttendance]);
+
   const projectId = form.project_id;
 
   useEffect(() => {
@@ -259,7 +267,7 @@ export default function TaskCreate() {
 
     const base = {
       project_id,
-      parent_task_id,
+      parent_id: parent_task_id,
       title: form.title.trim(),
       description: form.description?.trim() || null,
       priority: form.priority,
@@ -269,15 +277,13 @@ export default function TaskCreate() {
         estimated_hours != null && !Number.isNaN(estimated_hours)
           ? estimated_hours
           : null,
-      assignee_type: form.assignee_type,
+      assign_type: form.assignee_type,
     };
 
     if (form.assignee_type === "user") {
-      base.assigned_user_ids = selectedUserIds;
-      base.user_ids = selectedUserIds;
+      base.assigned_users = selectedUserIds;
     } else if (form.assignee_type === "team" && form.team_id) {
       base.team_id = Number(form.team_id);
-      base.assigned_team_id = Number(form.team_id);
     }
 
     return base;

@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import ErimonLogo from "../ErimonLogo";
+import EirmonLogo from "../EirmonLogo";
 
 export function GlassPanel({
   as: Tag = "div",
@@ -115,7 +115,7 @@ export function LoadingScreen({ label = "Loading…" }) {
           animate={{ scale: [1, 1.05, 1], opacity: [0.92, 1, 0.92] }}
           transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
         >
-          <ErimonLogo size={72} className="app-loading-logo" />
+          <EirmonLogo size={72} className="app-loading-logo" />
         </motion.div>
       </div>
       <p className="app-loading-text">{label}</p>

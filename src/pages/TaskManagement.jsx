@@ -677,6 +677,14 @@ export default function TaskManagement() {
   }, [loadTodayAttendance]);
 
   useEffect(() => {
+    const onAttendanceChanged = () => loadTodayAttendance();
+    window.addEventListener("collabflow:attendance-changed", onAttendanceChanged);
+    return () => {
+      window.removeEventListener("collabflow:attendance-changed", onAttendanceChanged);
+    };
+  }, [loadTodayAttendance]);
+
+  useEffect(() => {
     const id = setInterval(loadTodayAttendance, 120000);
     const onFocus = () => loadTodayAttendance();
     window.addEventListener("focus", onFocus);

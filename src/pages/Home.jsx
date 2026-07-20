@@ -12,13 +12,14 @@ import {
   Activity,
 } from "lucide-react";
 import AppLayout from "../components/layout/AppLayout";
-import ErimonLogo from "../components/ErimonLogo";
+import EirmonLogo from "../components/EirmonLogo";
 import { GlassCard, GlassButton } from "../components/glass/Glass";
 import ProgressRing from "../components/glass/ProgressRing";
 import { getCurrentUser } from "../api/auth.api";
 import { fetchTasksPage } from "../api/tasks.api";
 import { apiRequest } from "../api/http";
 import WorkdayStatusBar from "../components/WorkdayStatusBar";
+import { syncElectronBreakState } from "../utils/electronBreakSync";
 import { toast } from "react-hot-toast";
 import { logoutSession } from "../utils/sessionLogout";
 import { refreshAttendanceScreenshots } from "../utils/attendanceScreenshotSync";
@@ -318,12 +319,14 @@ export default function Home() {
   };
 
   const handleBreak = async () => {
-    const endpoint = onBreak
+    const ending = onBreak;
+    const endpoint = ending
       ? "/attendance/break/end"
       : "/attendance/break/start";
 
     await apiRequest(endpoint, { method: "POST" });
-    loadDashboard();
+    await loadDashboard();
+    syncElectronBreakState(!ending, { force: ending });
   };
 
   const handleCheckForUpdates = async () => {
@@ -370,7 +373,7 @@ export default function Home() {
       user={user}
       onLogout={handleLogout}
       loading={loading}
-      loadingLabel="Loading Erimon CRM…"
+      loadingLabel="Loading Eirmon CRM…"
       showWorkdayBar={
         <WorkdayStatusBar
           isCheckedIn={isCheckedIn}
@@ -593,7 +596,7 @@ export default function Home() {
 
           <GlassCard className="!p-5">
             <div className="mb-4 flex items-center gap-2.5">
-              <ErimonLogo size={28} className="!rounded-xl shadow-md shadow-[#0a84ff]/20" />
+              <EirmonLogo size={28} className="!rounded-xl shadow-md shadow-[#0a84ff]/20" />
               <h3 className="font-semibold">AI suggestions</h3>
             </div>
             <ul className="space-y-3 text-sm text-glass-muted">

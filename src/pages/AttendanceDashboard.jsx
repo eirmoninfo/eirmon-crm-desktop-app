@@ -151,6 +151,7 @@ const AttendanceDashboard = () => {
           { id: toastId }
         );
         await loadData(pagination.current_page || 1, true);
+        syncElectronBreakState(isStarting, { force: !isStarting });
       } else {
         throw new Error(res?.message || 'Break action failed');
       }

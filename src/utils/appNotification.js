@@ -1,11 +1,21 @@
 import { getLogoAbsoluteUrl } from "./appBrand";
+import { playNotificationSound } from "./notificationSound";
 
 /**
- * Show a native OS notification with the Erimon logo (Electron main process when available).
+ * Show a native OS notification with the Eirmon logo (Electron main process when available).
+ * Also plays a short in-app chime.
  */
-export function showAppNotification({ title, body } = {}) {
-  const safeTitle = String(title || "Erimon CRM").slice(0, 100);
+export function showAppNotification({ title, body, silent = false } = {}) {
+  const safeTitle = String(title || "Eirmon CRM").slice(0, 100);
   const safeBody = String(body || "").slice(0, 500);
+
+  if (!silent) {
+    try {
+      playNotificationSound();
+    } catch {
+      /* ignore */
+    }
+  }
 
   if (typeof window !== "undefined" && window.api?.showAppNotification) {
     return window.api.showAppNotification({
@@ -26,6 +36,7 @@ export function showAppNotification({ title, body } = {}) {
       new Notification(safeTitle, {
         body: safeBody,
         icon: getLogoAbsoluteUrl(),
+        silent: false,
       });
       return Promise.resolve({ ok: true });
     } catch {

@@ -131,7 +131,7 @@ Open **Leave** to request time off.`,
     summary: "Quick notes and drafts.",
     answer: `**Workspace notes**
 
-• **Workspace Notes** is your personal notepad inside Erimon CRM.
+• **Workspace Notes** is your personal notepad inside Eirmon CRM.
 • Save drafts, rough ideas, and quick reminders while you work.
 
 Open **Workspace Notes** to write.`,

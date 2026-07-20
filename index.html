@@ -14,7 +14,9 @@
     <script>
       (function () {
         try {
-          var t = localStorage.getItem("erimon.theme");
+          var t =
+            localStorage.getItem("eirmon.theme") ||
+            localStorage.getItem("erimon.theme");
           document.documentElement.setAttribute(
             "data-theme",
             t === "light" ? "light" : "dark"
@@ -24,7 +26,7 @@
         }
       })();
     </script>
-    <title>Erimon CRM</title>
+    <title>Eirmon CRM</title>
   </head>
   <body>
     <div id="root">
@@ -33,13 +35,13 @@
           <div class="app-loading-spinner" aria-hidden="true"></div>
           <img
             src="%BASE_URL%eirmon_ai_logo.png"
-            alt="Erimon CRM"
+            alt="Eirmon CRM"
             width="72"
             height="72"
             class="app-loading-logo app-loading-logo-pulse"
           />
         </div>
-        <p class="app-loading-text">Loading Erimon CRM…</p>
+        <p class="app-loading-text">Loading Eirmon CRM…</p>
       </div>
     </div>
     <script type="module" src="/src/main.jsx"></script>

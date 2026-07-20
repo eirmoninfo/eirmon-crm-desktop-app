@@ -11,8 +11,8 @@ import {
 } from "lucide-react";
 import WeatherPill from "./WeatherPill";
 import ThemeToggle from "./ThemeToggle";
-import ErimonLogo from "./ErimonLogo";
-import { ERIMON_LOGO_SRC } from "../utils/appBrand";
+import EirmonLogo from "./EirmonLogo";
+import { EIRMON_LOGO_SRC } from "../utils/appBrand";
 import { getCurrentUser } from "../api/auth.api";
 import { getUserPayload } from "../utils/permissions";
 import { logoutSession } from "../utils/sessionLogout";
@@ -153,7 +153,7 @@ export default function Header({
           </button>
 
           <div className="flex min-w-0 items-center gap-2.5">
-            <ErimonLogo size={34} className="hidden shrink-0 !rounded-xl sm:block" />
+            <EirmonLogo size={34} className="hidden shrink-0 !rounded-xl sm:block" />
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-glass-subtle">
                 {title}
@@ -295,7 +295,7 @@ export default function Header({
               <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
                 <div className="flex items-center gap-2.5">
                   <img
-                    src={ERIMON_LOGO_SRC}
+                    src={EIRMON_LOGO_SRC}
                     alt=""
                     className="h-8 w-8 rounded-xl object-contain ring-1 ring-white/10"
                   />

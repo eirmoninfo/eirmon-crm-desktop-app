@@ -199,7 +199,7 @@ const MESSAGE_DISPLAY_MAX = 120;
 const TITLE_DISPLAY_MAX = 100;
 
 function deliverMotivationNotification(notification) {
-  const title = String(notification?.title || "Erimon CRM").slice(
+  const title = String(notification?.title || "Eirmon CRM").slice(
     0,
     TITLE_DISPLAY_MAX
   );

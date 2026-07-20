@@ -3,11 +3,11 @@
  * Auto-idle break uses main's `breakActive`; manual breaks use `apiRequest` only,
  * so main must be told the real break state.
  */
-export function syncElectronBreakState(hasActiveBreak) {
+export function syncElectronBreakState(hasActiveBreak, { force = false } = {}) {
   if (
     typeof window !== "undefined" &&
     typeof window.api?.syncBreakState === "function"
   ) {
-    window.api.syncBreakState(!!hasActiveBreak);
+    window.api.syncBreakState(!!hasActiveBreak, { force });
   }
 }

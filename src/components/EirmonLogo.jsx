@@ -1,20 +1,20 @@
 import { useId, useState } from "react";
 import {
-  ERIMON_LOGO_SRC,
-  ERIMON_LOGO_FALLBACK_SRC,
+  EIRMON_LOGO_SRC,
+  EIRMON_LOGO_FALLBACK_SRC,
 } from "../utils/appBrand";
 
-export { ERIMON_LOGO_SRC };
+export { EIRMON_LOGO_SRC };
 
 /**
  * Brand mark: `public/eirmon_ai_logo.png` → `public/logo.png` → inline SVG.
  */
-export default function ErimonLogo({
+export default function EirmonLogo({
   className = "",
   size = 40,
-  "aria-label": ariaLabel = "Erimon CRM",
+  "aria-label": ariaLabel = "Eirmon CRM",
 }) {
-  const [src, setSrc] = useState(ERIMON_LOGO_SRC);
+  const [src, setSrc] = useState(EIRMON_LOGO_SRC);
   const [useFallback, setUseFallback] = useState(false);
   const gid = useId().replace(/:/g, "");
 
@@ -27,8 +27,8 @@ export default function ErimonLogo({
         height={size}
         className={`shrink-0 rounded-xl object-contain shadow-sm ring-1 ring-black/5 ${className}`}
         onError={() => {
-          if (src !== ERIMON_LOGO_FALLBACK_SRC) {
-            setSrc(ERIMON_LOGO_FALLBACK_SRC);
+          if (src !== EIRMON_LOGO_FALLBACK_SRC) {
+            setSrc(EIRMON_LOGO_FALLBACK_SRC);
             return;
           }
           setUseFallback(true);
@@ -48,7 +48,7 @@ export default function ErimonLogo({
     >
       <defs>
         <linearGradient
-          id={`erimon-grad-${gid}`}
+          id={`eirmon-grad-${gid}`}
           x1="0%"
           y1="0%"
           x2="100%"
@@ -62,7 +62,7 @@ export default function ErimonLogo({
         width="40"
         height="40"
         rx="10"
-        fill={`url(#erimon-grad-${gid})`}
+        fill={`url(#eirmon-grad-${gid})`}
       />
       <path
         d="M10 11h20v2.5H10V11zm0 7.25h14v2.5H10v-2.5zm0 7.25h20v2.5H10v-2.5z"
@@ -77,13 +77,13 @@ export default function ErimonLogo({
 export function ToastLogoIcon({ className = "h-5 w-5 rounded-md object-contain" }) {
   return (
     <img
-      src={ERIMON_LOGO_SRC}
+      src={EIRMON_LOGO_SRC}
       alt=""
       className={className}
       aria-hidden
       onError={(e) => {
-        if (e.currentTarget.src !== ERIMON_LOGO_FALLBACK_SRC) {
-          e.currentTarget.src = ERIMON_LOGO_FALLBACK_SRC;
+        if (e.currentTarget.src !== EIRMON_LOGO_FALLBACK_SRC) {
+          e.currentTarget.src = EIRMON_LOGO_FALLBACK_SRC;
         }
       }}
     />

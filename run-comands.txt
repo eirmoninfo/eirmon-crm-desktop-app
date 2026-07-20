@@ -1,1 +1,9 @@
+# Dev app
 npm run electron:dev
+
+# Windows build + GitHub upload (new version)
+export GH_TOKEN=your_github_token_here
+npm run release:win:upload -- 0.1.7
+
+# Same + git commit + tag + push
+npm run release:win:upload -- 0.1.7 --push

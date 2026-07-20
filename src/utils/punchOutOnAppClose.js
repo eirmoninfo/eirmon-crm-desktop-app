@@ -48,7 +48,7 @@ async function endActiveBreakIfNeeded(att, todayRes) {
   if (!hasActiveBreak(att, todayRes)) return;
   try {
     await apiRequest("/attendance/break/end", { method: "POST" });
-    syncElectronBreakState(false);
+    syncElectronBreakState(false, { force: true });
   } catch (err) {
     console.warn("[AppClose] break/end before checkout:", err);
   }
@@ -66,14 +66,14 @@ async function punchOutBeforeClose() {
   try {
     const res = await apiRequest("/attendance/check-out", { method: "POST" });
     refreshAttendanceScreenshots();
-    syncElectronBreakState(false);
+    syncElectronBreakState(false, { force: true });
 
     const message =
       res?.message || "You were automatically punched out when closing the app.";
 
     toast.success(message, { duration: 5000 });
     void showAppNotification({
-      title: "Erimon CRM",
+      title: "Eirmon CRM",
       body: message,
     });
 

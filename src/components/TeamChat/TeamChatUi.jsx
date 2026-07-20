@@ -47,9 +47,9 @@ export function TypingIndicator({ names = [] }) {
   return (
     <div className="flex items-center gap-2 text-xs text-glass-muted">
       <span className="flex gap-0.5">
-        <span className="team-chat-typing-dot h-1.5 w-1.5 rounded-full bg-erimon-500" />
-        <span className="team-chat-typing-dot h-1.5 w-1.5 rounded-full bg-erimon-500" />
-        <span className="team-chat-typing-dot h-1.5 w-1.5 rounded-full bg-erimon-500" />
+        <span className="team-chat-typing-dot h-1.5 w-1.5 rounded-full bg-eirmon-500" />
+        <span className="team-chat-typing-dot h-1.5 w-1.5 rounded-full bg-eirmon-500" />
+        <span className="team-chat-typing-dot h-1.5 w-1.5 rounded-full bg-eirmon-500" />
       </span>
       <span className="italic">
         {names.join(", ")} {names.length === 1 ? "is" : "are"} typing…
@@ -73,7 +73,7 @@ export function DateSeparator({ label }) {
 export function ChatEmptyState({ onCreateChannel }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-      <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-erimon-500 to-erimon-800 text-3xl text-white shadow-xl shadow-erimon-500/25">
+      <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-eirmon-500 to-eirmon-800 text-3xl text-white shadow-xl shadow-eirmon-500/25">
         💬
       </div>
       <h3 className="text-lg font-semibold theme-text">Start a conversation</h3>
@@ -126,7 +126,7 @@ export function ChannelListItem({ channel, usersById, active, unread, onSelect }
             {label}
           </span>
           {unread > 0 ? (
-            <span className="shrink-0 rounded-full bg-gradient-to-r from-erimon-600 to-erimon-700 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
+            <span className="shrink-0 rounded-full bg-gradient-to-r from-eirmon-600 to-eirmon-700 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
               {unread > 99 ? "99+" : unread}
             </span>
           ) : null}
@@ -198,7 +198,7 @@ function AuthImage({ att, msg, mine }) {
   if (loading) {
     return (
       <div className="flex h-32 items-center justify-center rounded-xl bg-white/5">
-        <FaSpinner className="animate-spin text-erimon-600" />
+        <FaSpinner className="animate-spin text-eirmon-600" />
       </div>
     );
   }
