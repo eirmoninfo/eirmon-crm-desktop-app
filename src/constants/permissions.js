@@ -1,0 +1,36 @@
+/**
+ * Permission names must match Laravel / Sanctum API (Spatie).
+ */
+
+export const P = {
+  VIEW_DASHBOARD: "view dashboard",
+  VIEW_PROJECTS: "view projects",
+  CREATE_PROJECTS: "create projects",
+  EDIT_PROJECTS: "edit projects",
+  DELETE_PROJECTS: "delete projects",
+  VIEW_TASKS: "view tasks",
+  CREATE_TASKS: "create tasks",
+  EDIT_TASKS: "edit tasks",
+  DELETE_TASKS: "delete tasks",
+  ASSIGN_TASKS: "assign tasks",
+  VIEW_ATTENDANCE: "view attendance",
+  VIEW_ALL_ATTENDANCE: "view all attendance",
+  MARK_ATTENDANCE: "mark attendance",
+  MANAGE_USERS_ATTENDANCE: "manage users attendance",
+  MARK_OWN_ATTENDANCE: "mark own attendance",
+  MARK_ATTENDANCE_FOR_OTHERS: "mark attendance for others",
+  EDIT_ATTENDANCE: "edit attendance",
+  MANAGE_EXPENSE_CATEGORIES: "manage expense categories",
+  VIEW_EXPENSE_CATEGORIES: "view expense categories",
+  CREATE_EXPENSE_CATEGORIES: "create expense categories",
+  VIEW_EXPENSES: "view expenses",
+  CREATE_EXPENSES: "create expenses",
+  EDIT_EXPENSES: "edit expenses",
+  DELETE_EXPENSES: "delete expenses",
+  APPROVE_EXPENSES: "approve expenses",
+  MANAGE_BUDGETS: "manage budgets",
+  VIEW_BUDGETS: "view budgets",
+  CREATE_BUDGETS: "create budgets",
+  EDIT_BUDGETS: "edit budgets",
+  DELETE_BUDGETS: "delete budgets",
+};

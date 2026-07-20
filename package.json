@@ -1,0 +1,130 @@
+{
+  "name": "erimon-crm",
+  "private": true,
+  "version": "0.1.6",
+  "description": "Erimon CRM desktop application",
+  "author": "Erimon Solutions <support@eirmonsolutions.com>",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "electron:dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "dev:electron": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:mac": "vite build && electron-builder --mac",
+    "electron:win": "vite build && electron-builder --win",
+    "electron:linux": "vite build && electron-builder --linux",
+    "electron:chromebook": "vite build && electron-builder --linux AppImage deb --x64",
+    "postinstall": "electron-builder install-app-deps",
+    "release": "vite build && electron-builder --publish always"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@tailwindcss/vite": "^4.1.18",
+    "electron-log": "^5.4.3",
+    "electron-updater": "^6.8.3",
+    "form-data": "^4.0.5",
+    "framer-motion": "^12.42.2",
+    "jspdf": "^4.0.0",
+    "laravel-echo": "^2.3.0",
+    "lucide-react": "^1.23.0",
+    "node-fetch": "^3.3.2",
+    "pusher-js": "^8.4.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-hot-toast": "^2.6.0",
+    "react-icons": "^5.5.0",
+    "react-router-dom": "^7.11.0",
+    "sortablejs": "^1.15.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "autoprefixer": "^10.4.23",
+    "concurrently": "^9.2.1",
+    "electron": "^39.8.9",
+    "electron-builder": "^26.8.1",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
+    "vite": "^7.2.4",
+    "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.erimon.crm",
+    "productName": "Erimon CRM",
+    "icon": "public/logo.png",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "eirmonsolutions",
+        "repo": "eirmon_desktop"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "asar": true,
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "extendInfo": {
+        "NSLocationWhenInUseUsageDescription": "Erimon CRM uses your location to show local weather in the header."
+      }
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Office",
+      "maintainer": "Erimon Solutions <support@eirmonsolutions.com>",
+      "artifactName": "${productName}-${version}.${ext}",
+      "desktop": {
+        "entry": {
+          "Name": "Erimon CRM",
+          "Comment": "Erimon CRM desktop application",
+          "Categories": "Office;ProjectManagement;"
+        }
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
