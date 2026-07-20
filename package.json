@@ -1,7 +1,7 @@
 {
   "name": "eirmon-crm",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Eirmon CRM desktop application",
   "author": "Eirmon Solutions <support@eirmonsolutions.com>",
   "type": "module",
