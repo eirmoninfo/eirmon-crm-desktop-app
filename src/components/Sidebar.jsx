@@ -241,7 +241,7 @@ export default function Sidebar({
                 className="min-w-0 overflow-hidden"
               >
                 <h1 className="truncate text-sm font-semibold tracking-tight">
-                  Eirmon CRM
+                  Eirmon One
                 </h1>
                 <p className="text-[10px] font-medium uppercase tracking-widest text-glass-subtle">
                   Workspace

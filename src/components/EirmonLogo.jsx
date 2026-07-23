@@ -12,7 +12,7 @@ export { EIRMON_LOGO_SRC };
 export default function EirmonLogo({
   className = "",
   size = 40,
-  "aria-label": ariaLabel = "Eirmon CRM",
+  "aria-label": ariaLabel = "Eirmon One",
 }) {
   const [src, setSrc] = useState(EIRMON_LOGO_SRC);
   const [useFallback, setUseFallback] = useState(false);

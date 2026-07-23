@@ -35,7 +35,7 @@ export default function LoginForm() {
       await login({
         email,
         password,
-        device_name: "Eirmon CRM Desktop",
+        device_name: "Eirmon One Desktop",
       });
 
       const t = getToken();
@@ -56,7 +56,7 @@ export default function LoginForm() {
         <div className="auth-card-logo-wrap">
           <EirmonLogo size={72} className="shadow-none ring-0" />
         </div>
-        <p className="auth-card-kicker">Eirmon Solutions</p>
+        <p className="auth-card-kicker">Eirmon One</p>
         <h2 className="auth-card-title">Welcome back</h2>
         <p className="auth-card-subtitle">
           Enter your credentials to access your workspace.

@@ -65,7 +65,7 @@
   },
   "build": {
     "appId": "com.eirmon.crm",
-    "productName": "Eirmon CRM",
+    "productName": "Eirmon One",
     "icon": "public/logo.png",
     "publish": [
       {

@@ -373,7 +373,7 @@ export default function Home() {
       user={user}
       onLogout={handleLogout}
       loading={loading}
-      loadingLabel="Loading Eirmon CRM…"
+      loadingLabel="Loading Eirmon One…"
       showWorkdayBar={
         <WorkdayStatusBar
           isCheckedIn={isCheckedIn}
