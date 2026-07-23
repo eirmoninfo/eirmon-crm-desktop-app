@@ -50,7 +50,7 @@ function resolveAppIconNative() {
 }
 
 const API_BASE =
-  process.env.VITE_API_BASE_URL || "https://eirmonone.com//api";
+  process.env.VITE_API_BASE_URL || "https://eirmonone.com/api";
 const apiUrl = (p) =>
   `${String(API_BASE).replace(/\/$/, "")}${p.startsWith("/") ? p : `/${p}`}`;
 

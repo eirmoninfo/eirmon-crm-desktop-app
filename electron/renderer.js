@@ -11,7 +11,7 @@ import { fetchTrackerConfig } from "../src/api/trackerConfig";
 
 window.Pusher = Pusher;
 
-const API_URL = "https://eirmonone.com/";
+const API_URL = "https://eirmonone.com/api";
 const TOKEN = localStorage.getItem("auth_token");
 const USER_ID = Number(localStorage.getItem("user_id"));
 
