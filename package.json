@@ -16,6 +16,7 @@
     "electron:mac": "vite build && electron-builder --mac",
     "electron:win": "vite build && electron-builder --win",
     "electron:linux": "vite build && electron-builder --linux",
+    "electron:chromebook:arm64": "vite build && electron-builder --linux deb AppImage --arm64",
     "electron:chromebook": "vite build && electron-builder --linux AppImage deb --x64",
     "postinstall": "electron-builder install-app-deps",
     "release": "vite build && electron-builder --publish always",
