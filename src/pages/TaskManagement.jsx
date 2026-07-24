@@ -721,13 +721,17 @@ export default function TaskManagement() {
         return [...prev, { ...task, status: COLUMN_TO_API[col] }];
       });
 
-      toast.success(`New task: ${task.title}`, {
-        icon: getToastLogoIcon(),
-      });
+      window.dispatchEvent(
+        new CustomEvent("collabflow:task-assigned", {
+          detail: { task },
+        })
+      );
 
       showAppNotification({
         title: "New Task Assigned",
         body: task.title,
+        toastMessage: `New task: ${task.title}`,
+        toastOptions: { duration: 6000 },
       }).catch(() => {});
     });
 

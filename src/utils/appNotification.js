@@ -1,17 +1,37 @@
-import { getLogoAbsoluteUrl } from "./appBrand";
+import toast from "react-hot-toast";
+import { getLogoAbsoluteUrl, getToastLogoIcon } from "./appBrand";
 import { playNotificationSound } from "./notificationSound";
 
 /**
  * Show a native OS notification with the Eirmon logo (Electron main process when available).
- * Also plays a short in-app chime.
+ * Also plays a short in-app chime and can surface a toast banner.
  */
-export function showAppNotification({ title, body, silent = false } = {}) {
+export function showAppNotification({
+  title,
+  body,
+  silent = false,
+  toastMessage,
+  toastOptions = {},
+} = {}) {
   const safeTitle = String(title || "Eirmon CRM").slice(0, 100);
   const safeBody = String(body || "").slice(0, 500);
+  const safeToastMessage = String(toastMessage || "").trim();
 
   if (!silent) {
     try {
       playNotificationSound();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (safeToastMessage) {
+    try {
+      toast.success(safeToastMessage, {
+        icon: getToastLogoIcon(),
+        duration: 6000,
+        ...toastOptions,
+      });
     } catch {
       /* ignore */
     }

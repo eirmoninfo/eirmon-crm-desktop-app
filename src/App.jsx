@@ -30,6 +30,7 @@ import PermissionRoute from "./components/PermissionRoute";
 import { P } from "./constants/permissions";
 import { getToken } from "./utils/storage";
 import { getToastLogoIcon } from "./utils/appBrand";
+import { showAppNotification } from "./utils/appNotification";
 
 function App() {
   useEffect(() => {
@@ -38,8 +39,49 @@ function App() {
       bootstrapElectron(token);
     }
     const stopCloseGuard = startPunchOutOnAppClose();
+
+    const onTeamChatMessage = (event) => {
+      const detail = event?.detail || {};
+      const message = detail.message;
+      if (!message?.id) return;
+
+      const senderName =
+        message?.user?.name ??
+        message?.sender?.name ??
+        message?.author_name ??
+        message?.user_name ??
+        "Someone";
+      const preview = String(message?._displayBody || message?.body || "").trim();
+      const body = preview
+        ? `${senderName}: ${preview}`
+        : `${senderName} sent a message`;
+
+      showAppNotification({
+        title: `New message${detail.channelName ? ` · ${detail.channelName}` : ""}`,
+        body,
+        toastMessage: body,
+        toastOptions: { duration: 6000 },
+      }).catch(() => {});
+    };
+
+    const onTaskAssigned = (event) => {
+      const task = event?.detail?.task;
+      if (!task?.id) return;
+      showAppNotification({
+        title: "New Task Assigned",
+        body: task.title,
+        toastMessage: `New task: ${task.title}`,
+        toastOptions: { duration: 6000 },
+      }).catch(() => {});
+    };
+
+    window.addEventListener("collabflow:team-chat-message", onTeamChatMessage);
+    window.addEventListener("collabflow:task-assigned", onTaskAssigned);
+
     return () => {
       if (typeof stopCloseGuard === "function") stopCloseGuard();
+      window.removeEventListener("collabflow:team-chat-message", onTeamChatMessage);
+      window.removeEventListener("collabflow:task-assigned", onTaskAssigned);
     };
   }, []);
 

@@ -50,7 +50,36 @@ import {
   parseChannel,
   parseMessages,
 } from "../utils/teamChatHelpers";
+
+function normalizeIncomingTeamChatPayload(payload) {
+  const direct = extractChatMessage(payload);
+  if (direct?.id) return direct;
+
+  const possibleMessage =
+    payload?.message ??
+    payload?.data?.message ??
+    payload?.data ??
+    payload;
+  const msg = extractChatMessage(possibleMessage);
+  if (msg?.id) return msg;
+
+  const fallback = payload?.message ?? payload?.data ?? payload;
+  if (fallback && typeof fallback === "object") {
+    return normalizeMessage({
+      id: fallback.id ?? fallback.message_id ?? fallback.message?.id,
+      body: fallback.body ?? fallback.message?.body ?? fallback.preview ?? "",
+      user_id: fallback.user_id ?? fallback.user?.id ?? fallback.sender_id,
+      user: fallback.user ?? fallback.sender ?? fallback.author ?? null,
+      created_at: fallback.created_at ?? fallback.timestamp ?? new Date().toISOString(),
+      channel_id: fallback.channel_id ?? fallback.channel?.id ?? null,
+      ...fallback,
+    });
+  }
+
+  return null;
+}
 import { unwrapApiBody } from "../utils/unwrapApiBody";
+import { showAppNotification } from "../utils/appNotification";
 
 const POLL_MS = 4000;
 
@@ -156,18 +185,45 @@ export default function TeamChat() {
     getEcho();
   }, []);
 
-  const applyIncomingMessage = useCallback((rawMsg, channelId) => {
-    const msg = normalizeMessage(rawMsg);
-    if (!msg?.id) return;
+  const applyIncomingMessage = useCallback(
+    (rawMsg, channelId) => {
+      const msg = normalizeMessage(rawMsg);
+      if (!msg?.id) return;
 
-    setMessages((prev) => {
-      const next = mergeMessagesById(prev, [msg]);
-      messagesRef.current = next;
-      return next;
-    });
+      setMessages((prev) => {
+        const next = mergeMessagesById(prev, [msg]);
+        messagesRef.current = next;
+        return next;
+      });
 
-    setChannels((prev) => patchChannelLastMessage(prev, channelId, msg));
-  }, []);
+      setChannels((prev) => patchChannelLastMessage(prev, channelId, msg));
+    },
+    []
+  );
+
+  const notifyIncomingMessage = useCallback(
+    (msg) => {
+      const senderName =
+        msg?.user?.name ??
+        msg?.sender?.name ??
+        msg?.author_name ??
+        msg?.user_name ??
+        "Someone";
+      const preview = String(msg?._displayBody || msg?.body || "").trim();
+      const channelName = channelLabel(selectedChannel, usersById) || "Team chat";
+      const body = preview
+        ? `${senderName}: ${preview}`
+        : `${senderName} sent a message`;
+
+      showAppNotification({
+        title: `New message · ${channelName}`,
+        body,
+        toastMessage: body,
+        toastOptions: { duration: 6000 },
+      }).catch(() => {});
+    },
+    [selectedChannel, usersById]
+  );
 
   const loadMessages = useCallback(
     async (channelId, { beforeId, append, silent } = {}) => {
@@ -222,10 +278,20 @@ export default function TeamChat() {
 
     const subscribed = subscribeTeamChatChannel(selectedId, {
       onMessage: (payload) => {
-        const msg = extractChatMessage(payload);
+        const msg = normalizeIncomingTeamChatPayload(payload);
         if (!msg?.id) return;
         applyIncomingMessage(msg, selectedId);
         if (Number(msg.user_id ?? msg.user?.id) !== Number(myId)) {
+          notifyIncomingMessage(msg);
+          window.dispatchEvent(
+            new CustomEvent("collabflow:team-chat-message", {
+              detail: {
+                message: msg,
+                channelId: selectedId,
+                channelName: channelLabel(selectedChannel, usersById),
+              },
+            })
+          );
           markTeamChatChannelRead(selectedId).catch(() => {});
         }
       },
@@ -249,7 +315,7 @@ export default function TeamChat() {
       setLiveConnected(false);
       if (typingClearRef.current) clearTimeout(typingClearRef.current);
     };
-  }, [selectedId, loadMessages, myId, applyIncomingMessage]);
+  }, [selectedId, loadMessages, myId, applyIncomingMessage, notifyIncomingMessage, selectedChannel, usersById]);
 
   /** Poll when WebSocket is off or as backup so chat stays near real-time. */
   useEffect(() => {

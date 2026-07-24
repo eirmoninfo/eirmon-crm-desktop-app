@@ -3,23 +3,46 @@ import { getEcho, refreshEchoAuth } from "./echo";
 let activeSubscription = null;
 
 const MESSAGE_EVENTS = [
+  ".TeamChatIncoming",
+  "TeamChatIncoming",
   ".MessageSent",
   "MessageSent",
   ".message.sent",
   "message.sent",
+  ".message.created",
+  "message.created",
+  ".message.posted",
+  "message.posted",
+  ".team_chat_message_sent",
+  "team_chat_message_sent",
+  ".TeamChatMessageSent",
+  "TeamChatMessageSent",
 ];
 
-const TYPING_EVENTS = [".UserTyping", "UserTyping", ".user.typing", "user.typing"];
+const TYPING_EVENTS = [
+  ".UserTyping",
+  "UserTyping",
+  ".user.typing",
+  "user.typing",
+  ".typing",
+  "typing",
+];
 
 function bindEvents(channel, handlers) {
   if (handlers.onMessage) {
     for (const ev of MESSAGE_EVENTS) {
-      channel.listen(ev, (e) => handlers.onMessage(e));
+      channel.listen(ev, (e) => {
+        console.log(`[TeamChat] Incoming event:${ev}`, e);
+        handlers.onMessage(e);
+      });
     }
   }
   if (handlers.onTyping) {
     for (const ev of TYPING_EVENTS) {
-      channel.listen(ev, (e) => handlers.onTyping(e));
+      channel.listen(ev, (e) => {
+        console.log(`[TeamChat] Typing event:${ev}`, e);
+        handlers.onTyping(e);
+      });
     }
   }
 }
@@ -39,6 +62,7 @@ export function subscribeTeamChatChannel(channelId, handlers = {}) {
 
   refreshEchoAuth();
   const channelName = `channel.${channelId}`;
+  const userChannelName = `user.${localStorage.getItem("user_id") || localStorage.getItem("user") || ""}`;
 
   try {
     const ch = echo.join(channelName);
@@ -46,6 +70,12 @@ export function subscribeTeamChatChannel(channelId, handlers = {}) {
     if (typeof handlers.onPresence === "function") {
       ch.here((users) => handlers.onPresence(users));
     }
+    ch.subscribed(() => {
+      console.log(`[TeamChat] Subscribed presence ${channelName}`);
+    });
+    ch.error((err) => {
+      console.error(`[TeamChat] Presence error ${channelName}`, err);
+    });
     activeSubscription = { type: "presence", channelId, channelName };
     console.log(`[TeamChat] Joined presence ${channelName}`);
     return true;
@@ -56,6 +86,12 @@ export function subscribeTeamChatChannel(channelId, handlers = {}) {
   try {
     const ch = echo.private(channelName);
     bindEvents(ch, handlers);
+    ch.subscribed(() => {
+      console.log(`[TeamChat] Subscribed private ${channelName}`);
+    });
+    ch.error((err) => {
+      console.error(`[TeamChat] Private error ${channelName}`, err);
+    });
     activeSubscription = { type: "private", channelId, channelName };
     console.log(`[TeamChat] Subscribed private ${channelName}`);
     return true;
