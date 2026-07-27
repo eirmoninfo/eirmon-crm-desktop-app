@@ -640,6 +640,36 @@ function showNativeAppNotification(payload = {}) {
     title,
     body: bodyText,
     ...(iconPath ? { icon: iconPath } : {}),
+    timeoutType: "default",
+    ...(process.platform === "darwin" &&
+    Array.isArray(payload?.actions) &&
+    payload.actions.length
+      ? {
+          actions: payload.actions.slice(0, 1).map((action) => ({
+            type: "button",
+            text: String(action?.text || "Reply").slice(0, 30),
+          })),
+          closeButtonText: "Close",
+        }
+      : {}),
+  });
+  const sendAction = (action = "open") => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send("notification:action", {
+      action,
+      route: typeof payload?.route === "string" ? payload.route : null,
+    });
+  };
+  n.on("click", () => sendAction("open"));
+  n.on("action", (_event, index) => {
+    const action = payload?.actions?.[index]?.id || "reply";
+    sendAction(action);
+  });
+  n.on("failed", (_event, error) => {
+    log.warn("[notification:failed]", error || "Native notification failed");
   });
   n.show();
   return { ok: true, icon: iconPath || null };

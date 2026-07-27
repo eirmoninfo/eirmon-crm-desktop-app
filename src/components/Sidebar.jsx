@@ -66,6 +66,18 @@ export default function Sidebar({
   const [meUser, setMeUser] = useState(() => readStoredUser());
   const [isExpanded, setIsExpanded] = useState(false);
   const [openDropdowns, setOpenDropdowns] = useState({ expenseMgmt: false });
+  const [chatUnread, setChatUnread] = useState(
+    () => Math.max(0, Number(window.__collabflowChatUnread) || 0)
+  );
+
+  useEffect(() => {
+    const onUnread = (event) => {
+      setChatUnread(Math.max(0, Number(event?.detail?.total) || 0));
+    };
+    window.addEventListener("collabflow:team-chat-unread", onUnread);
+    return () =>
+      window.removeEventListener("collabflow:team-chat-unread", onUnread);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -142,6 +154,7 @@ export default function Sidebar({
         name: "Chat",
         iconKey: "chat",
         href: "/team-chat",
+        badge: chatUnread > 0 ? (chatUnread > 99 ? "99+" : String(chatUnread)) : null,
         anyOf: [P.VIEW_TEAM_CHAT, P.MANAGE_TEAM_CHAT],
       },
       {
@@ -190,7 +203,7 @@ export default function Sidebar({
         ],
       },
     ],
-    [showHrBadge]
+    [chatUnread, showHrBadge]
   );
 
   const menuItems = useMemo(() => {
@@ -353,7 +366,14 @@ export default function Sidebar({
               title={!showExpanded ? item.name : undefined}
               className={`glass-nav-item ${active ? "glass-nav-item-active" : ""}`}
             >
-              {renderIcon(item.iconKey)}
+              <span className="relative shrink-0">
+                {renderIcon(item.iconKey)}
+                {item.iconKey === "chat" && item.badge && !showExpanded ? (
+                  <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white ring-2 ring-[var(--theme-bg-elevated)]">
+                    {item.badge}
+                  </span>
+                ) : null}
+              </span>
               {showExpanded ? (
                 <>
                   <span className="flex-1 truncate">{item.name}</span>

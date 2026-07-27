@@ -68,11 +68,15 @@ export function listTeamChatMessages(channelId, params = {}) {
 /**
  * POST /team-chat/channels/{id}/messages — JSON or multipart + file
  */
-export function sendTeamChatMessage(channelId, { body = "", file = null } = {}) {
+export function sendTeamChatMessage(
+  channelId,
+  { body = "", file = null, replyToId = null } = {}
+) {
   if (file) {
     const fd = new FormData();
     if (body) fd.append("body", body);
     fd.append("file", file);
+    if (replyToId != null) fd.append("reply_to_id", String(replyToId));
     return apiRequest(`${PREFIX}/channels/${channelId}/messages`, {
       method: "POST",
       body: fd,
@@ -80,7 +84,10 @@ export function sendTeamChatMessage(channelId, { body = "", file = null } = {}) 
   }
   return apiRequest(`${PREFIX}/channels/${channelId}/messages`, {
     method: "POST",
-    body: JSON.stringify({ body }),
+    body: JSON.stringify({
+      body,
+      ...(replyToId != null ? { reply_to_id: replyToId } : {}),
+    }),
   });
 }
 

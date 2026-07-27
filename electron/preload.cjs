@@ -50,6 +50,13 @@ contextBridge.exposeInMainWorld("api", {
   showAppNotification: (payload) =>
     ipcRenderer.invoke("notification:show", payload),
 
+  onAppNotificationAction: (callback) => {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on("notification:action", handler);
+    return () => ipcRenderer.removeListener("notification:action", handler);
+  },
+
   /** @deprecated use showAppNotification */
   showMotivationNotification: (payload) =>
     ipcRenderer.invoke("notification:show", payload),

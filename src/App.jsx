@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import Login from "./pages/Login";
 import Home from "./pages/Home";
 import AttendanceDashboard from "./pages/AttendanceDashboard";
@@ -31,8 +31,20 @@ import { P } from "./constants/permissions";
 import { getToken } from "./utils/storage";
 import { getToastLogoIcon } from "./utils/appBrand";
 import { showAppNotification } from "./utils/appNotification";
+import { teamChatBootstrap } from "./api/teamChat.api";
+import {
+  channelLabel,
+  getStoredUserId,
+  messagePreview,
+  parseBootstrap,
+} from "./utils/teamChatHelpers";
+
+const CHAT_UNREAD_POLL_MS = 10000;
 
 function App() {
+  const navigate = useNavigate();
+  const chatSnapshotRef = useRef(new Map());
+
   useEffect(() => {
     const token = getToken();
     if (token) {
@@ -61,6 +73,8 @@ function App() {
         body,
         toastMessage: body,
         toastOptions: { duration: 6000 },
+        route: detail.channelId ? `/team-chat/${detail.channelId}` : "/team-chat",
+        actions: [{ id: "reply", text: "Reply" }],
       }).catch(() => {});
     };
 
@@ -77,11 +91,87 @@ function App() {
 
     window.addEventListener("collabflow:team-chat-message", onTeamChatMessage);
     window.addEventListener("collabflow:task-assigned", onTaskAssigned);
+    const stopNotificationActions = window.api?.onAppNotificationAction?.(
+      ({ route }) => {
+        if (route) navigate(route);
+      }
+    );
 
     return () => {
       if (typeof stopCloseGuard === "function") stopCloseGuard();
       window.removeEventListener("collabflow:team-chat-message", onTeamChatMessage);
       window.removeEventListener("collabflow:task-assigned", onTaskAssigned);
+      if (typeof stopNotificationActions === "function") stopNotificationActions();
+    };
+  }, [navigate]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkUnread = async () => {
+      if (!getToken()) {
+        chatSnapshotRef.current = new Map();
+        window.__collabflowChatUnread = 0;
+        return;
+      }
+      try {
+        const response = await teamChatBootstrap();
+        if (cancelled) return;
+        const { channels, users } = parseBootstrap(response);
+        const usersById = new Map(users.map((user) => [user.id, user]));
+        const nextSnapshot = new Map();
+        let totalUnread = 0;
+
+        channels.forEach((channel) => {
+          const unread = Number(channel.unread_count) || 0;
+          totalUnread += unread;
+          const lastMessage = channel.last_message;
+          const lastMessageId = lastMessage?.id ?? null;
+          const previous = chatSnapshotRef.current.get(String(channel.id));
+          nextSnapshot.set(String(channel.id), { unread, lastMessageId });
+
+          if (
+            previous &&
+            unread > previous.unread &&
+            lastMessageId &&
+            lastMessageId !== previous.lastMessageId &&
+            Number(lastMessage?.user_id ?? lastMessage?.user?.id) !==
+              Number(getStoredUserId())
+          ) {
+            const sender =
+              lastMessage?.user?.name ??
+              lastMessage?.sender?.name ??
+              lastMessage?.author_name ??
+              "Someone";
+            const preview = messagePreview(lastMessage);
+            const chatName = channelLabel(channel, usersById);
+            void showAppNotification({
+              title: `New message · ${chatName}`,
+              body: preview ? `${sender}: ${preview}` : `${sender} sent a message`,
+              toastMessage: preview ? `${sender}: ${preview}` : `${sender} sent a message`,
+              route: `/team-chat/${channel.id}`,
+              actions: [{ id: "reply", text: "Reply" }],
+            });
+          }
+        });
+
+        chatSnapshotRef.current = nextSnapshot;
+        window.__collabflowChatUnread = totalUnread;
+        window.dispatchEvent(
+          new CustomEvent("collabflow:team-chat-unread", {
+            detail: { total: totalUnread },
+          })
+        );
+      } catch {
+        // Keep the last known badge when the network is temporarily unavailable.
+      }
+    };
+
+    void checkUnread();
+    const timer = window.setInterval(checkUnread, CHAT_UNREAD_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
     };
   }, []);
 

@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
-import { FaDownload, FaHashtag, FaImage, FaSpinner, FaUser } from "react-icons/fa";
+import {
+  FaDownload,
+  FaHashtag,
+  FaImage,
+  FaReply,
+  FaSpinner,
+  FaUser,
+} from "react-icons/fa";
 import { fetchTeamChatMessageFile } from "../../api/teamChat.api";
 import {
   channelLabel,
@@ -126,7 +133,7 @@ export function ChannelListItem({ channel, usersById, active, unread, onSelect }
             {label}
           </span>
           {unread > 0 ? (
-            <span className="shrink-0 rounded-full bg-gradient-to-r from-eirmon-600 to-eirmon-700 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
+            <span className="shrink-0 rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
               {unread > 99 ? "99+" : unread}
             </span>
           ) : null}
@@ -262,7 +269,7 @@ function MessageAttachments({ msg, mine }) {
   );
 }
 
-export function MessageBubble({ msg, mine, showAuthor }) {
+export function MessageBubble({ msg, mine, showAuthor, onReply }) {
   const author = msg?.user?.name ?? msg?.author_name ?? "User";
   const time = msg.created_at;
   const text = msg._displayBody ?? msg.body ?? "";
@@ -271,9 +278,21 @@ export function MessageBubble({ msg, mine, showAuthor }) {
     !attachments.length &&
     text &&
     /\.(png|jpe?g|gif|webp|bmp)$/i.test(text);
+  const repliedMessage =
+    msg.reply_to ??
+    msg.reply_to_message ??
+    msg.replied_message ??
+    msg.parent_message ??
+    null;
+  const repliedAuthor =
+    repliedMessage?.user?.name ??
+    repliedMessage?.author_name ??
+    repliedMessage?.user_name ??
+    "Message";
+  const repliedText = messagePreview(repliedMessage);
 
   return (
-    <div className={`flex gap-2 ${mine ? "flex-row-reverse" : ""}`}>
+    <div className={`group flex gap-2 ${mine ? "flex-row-reverse" : ""}`}>
       {!mine && showAuthor ? (
         <TeamChatAvatar name={author} size="sm" className="mt-1" />
       ) : !mine ? (
@@ -284,6 +303,14 @@ export function MessageBubble({ msg, mine, showAuthor }) {
           <p className="mb-1 px-1 text-xs font-semibold text-glass-muted">{author}</p>
         ) : null}
         <div className={mine ? "team-chat-bubble-mine" : "team-chat-bubble-theirs"}>
+          {repliedMessage ? (
+            <div className="mb-2 rounded-lg border-l-2 border-current bg-black/10 px-3 py-2 text-xs opacity-80">
+              <p className="font-semibold">{repliedAuthor}</p>
+              <p className="mt-0.5 max-w-72 truncate">
+                {repliedText || "Attachment"}
+              </p>
+            </div>
+          ) : null}
           {text ? (
             <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
               {text}
@@ -315,6 +342,17 @@ export function MessageBubble({ msg, mine, showAuthor }) {
             : ""}
         </p>
       </div>
+      {onReply ? (
+        <button
+          type="button"
+          onClick={() => onReply(msg)}
+          className="mt-7 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-glass-muted opacity-0 transition hover:bg-white/10 hover:text-eirmon-500 focus:opacity-100 group-hover:opacity-100"
+          title="Reply"
+          aria-label="Reply to message"
+        >
+          <FaReply className="text-xs" />
+        </button>
+      ) : null}
     </div>
   );
 }

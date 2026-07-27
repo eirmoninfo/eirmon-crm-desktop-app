@@ -6,6 +6,7 @@ import {
   FaPaperPlane,
   FaPlus,
   FaSearch,
+  FaSmile,
   FaTimes,
   FaSpinner,
 } from "react-icons/fa";
@@ -79,9 +80,19 @@ function normalizeIncomingTeamChatPayload(payload) {
   return null;
 }
 import { unwrapApiBody } from "../utils/unwrapApiBody";
-import { showAppNotification } from "../utils/appNotification";
 
 const POLL_MS = 4000;
+const CHAT_EMOJIS = [
+  "😀", "😃", "😄", "😁", "😆", "😂", "🤣", "😊",
+  "🙂", "😉", "😍", "🥰", "😘", "😎", "🤩", "🥳",
+  "🤔", "🫡", "🤗", "🤭", "😅", "😴", "😭", "😢",
+  "😡", "😱", "😇", "🤯", "👍", "👎", "👏", "🙌",
+  "🙏", "💪", "🤝", "👌", "✌️", "🤞", "👋", "🫶",
+  "❤️", "💙", "💚", "💛", "💜", "🖤", "💯", "🔥",
+  "✨", "⭐", "🎉", "🎊", "✅", "❌", "⚠️", "💡",
+  "🚀", "🏆", "🎯", "💻", "📱", "📌", "📎", "📝",
+  "☕", "🍕", "🍔", "🍰", "🎂", "🌞", "🌙", "🌈",
+];
 
 function patchChannelLastMessage(channels, channelId, msg) {
   return channels.map((c) =>
@@ -117,6 +128,8 @@ export default function TeamChat() {
   const [composer, setComposer] = useState("");
   const [sending, setSending] = useState(false);
   const [file, setFile] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const [searchQ, setSearchQ] = useState("");
   const [searchResults, setSearchResults] = useState(null);
   const [searching, setSearching] = useState(false);
@@ -163,6 +176,16 @@ export default function TeamChat() {
     [users, myId]
   );
 
+  const filteredUsers = useMemo(() => {
+    const q = searchQ.trim().toLowerCase();
+    if (!q) return otherUsers;
+    return otherUsers.filter((user) =>
+      [user.name, user.email]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(q))
+    );
+  }, [otherUsers, searchQ]);
+
   const loadBootstrap = useCallback(async () => {
     setLoading(true);
     try {
@@ -199,30 +222,6 @@ export default function TeamChat() {
       setChannels((prev) => patchChannelLastMessage(prev, channelId, msg));
     },
     []
-  );
-
-  const notifyIncomingMessage = useCallback(
-    (msg) => {
-      const senderName =
-        msg?.user?.name ??
-        msg?.sender?.name ??
-        msg?.author_name ??
-        msg?.user_name ??
-        "Someone";
-      const preview = String(msg?._displayBody || msg?.body || "").trim();
-      const channelName = channelLabel(selectedChannel, usersById) || "Team chat";
-      const body = preview
-        ? `${senderName}: ${preview}`
-        : `${senderName} sent a message`;
-
-      showAppNotification({
-        title: `New message · ${channelName}`,
-        body,
-        toastMessage: body,
-        toastOptions: { duration: 6000 },
-      }).catch(() => {});
-    },
-    [selectedChannel, usersById]
   );
 
   const loadMessages = useCallback(
@@ -282,7 +281,6 @@ export default function TeamChat() {
         if (!msg?.id) return;
         applyIncomingMessage(msg, selectedId);
         if (Number(msg.user_id ?? msg.user?.id) !== Number(myId)) {
-          notifyIncomingMessage(msg);
           window.dispatchEvent(
             new CustomEvent("collabflow:team-chat-message", {
               detail: {
@@ -315,7 +313,7 @@ export default function TeamChat() {
       setLiveConnected(false);
       if (typingClearRef.current) clearTimeout(typingClearRef.current);
     };
-  }, [selectedId, loadMessages, myId, applyIncomingMessage, notifyIncomingMessage, selectedChannel, usersById]);
+  }, [selectedId, loadMessages, myId, applyIncomingMessage, selectedChannel, usersById]);
 
   /** Poll when WebSocket is off or as backup so chat stays near real-time. */
   useEffect(() => {
@@ -334,7 +332,18 @@ export default function TeamChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const openChannel = (id) => navigate(`/team-chat/${id}`);
+  const openChannel = (id) => {
+    setReplyingTo(null);
+    setEmojiOpen(false);
+    navigate(`/team-chat/${id}`);
+  };
+
+  const insertEmoji = (emoji) => {
+    setComposer((current) => `${current}${emoji}`);
+    window.requestAnimationFrame(() => {
+      document.querySelector(".team-chat-message-input")?.focus();
+    });
+  };
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -355,6 +364,12 @@ export default function TeamChat() {
           user_id: myId,
           user: { id: myId },
           created_at: new Date().toISOString(),
+          ...(replyingTo
+            ? {
+                reply_to_id: replyingTo.id,
+                reply_to: replyingTo,
+              }
+            : {}),
           _attachments: [
             {
               url: localPreviewUrl,
@@ -373,6 +388,7 @@ export default function TeamChat() {
       const res = await sendTeamChatMessage(selectedId, {
         body: text,
         file: file || undefined,
+        replyToId: replyingTo?.id ?? null,
       });
       const sent =
         extractChatMessage(res) ??
@@ -394,6 +410,8 @@ export default function TeamChat() {
 
       setComposer("");
       setFile(null);
+      setReplyingTo(null);
+      setEmojiOpen(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== pendingId));
@@ -480,9 +498,9 @@ export default function TeamChat() {
       noPadding
       mainClassName="flex min-h-0 flex-1 overflow-hidden"
     >
-        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="team-chat-page flex min-h-0 flex-1 overflow-hidden">
           {/* Conversations panel */}
-          <aside className="flex w-full max-w-[340px] shrink-0 flex-col border-r border-white/10 bg-white/5 backdrop-blur-xl shadow-sm">
+          <aside className="team-chat-sidebar flex w-full max-w-[340px] shrink-0 flex-col backdrop-blur-xl shadow-sm">
             <div className="border-b border-slate-200/70 bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 px-4 py-4 text-white">
               <div className="flex items-center justify-between gap-2">
                 <div>
@@ -504,28 +522,34 @@ export default function TeamChat() {
                 </button>
               </div>
 
-              <div className="relative mt-3">
+              <form
+                className="relative mt-3"
+                role="search"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  runSearch();
+                }}
+              >
                 <FaSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400" />
                 <input
                   type="search"
                   value={searchQ}
                   onChange={(e) => setSearchQ(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && runSearch()}
                   placeholder="Search people & channels…"
+                  aria-label="Search people, channels, and messages"
                   className="w-full rounded-xl border-0 bg-white/95 py-2.5 pl-9 pr-9 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-eirmon-400"
                 />
                 {searching ? (
                   <FaSpinner className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-eirmon-600" />
                 ) : searchQ.trim() ? (
                   <button
-                    type="button"
-                    onClick={runSearch}
+                    type="submit"
                     className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg px-2 py-0.5 text-[10px] font-bold text-eirmon-700 hover:bg-eirmon-50"
                   >
                     Go
                   </button>
                 ) : null}
-              </div>
+              </form>
             </div>
 
             {searchResults != null && (
@@ -576,8 +600,8 @@ export default function TeamChat() {
                   onClick={() => setSidebarTab(tab.id)}
                   className={`flex-1 rounded-t-lg px-3 py-2 text-xs font-semibold transition ${
                     sidebarTab === tab.id
-                      ? "bg-white text-eirmon-700 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700"
+                      ? "team-chat-tab-active shadow-sm"
+                      : "team-chat-tab-inactive"
                   }`}
                 >
                   {tab.label}
@@ -596,10 +620,10 @@ export default function TeamChat() {
                   <p className="px-2 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                     Start direct message
                   </p>
-                  {otherUsers.length === 0 ? (
+                  {filteredUsers.length === 0 ? (
                     <p className="px-2 text-sm text-slate-500">No users listed.</p>
                   ) : (
-                    otherUsers.map((u) => (
+                    filteredUsers.map((u) => (
                       <DmUserRow
                         key={u.id}
                         user={u}
@@ -610,24 +634,7 @@ export default function TeamChat() {
                 </div>
               ) : (
                 <>
-                  {directChannels.length > 0 && (
-                    <section className="mb-3">
-                      <p className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                        Direct
-                      </p>
-                      {directChannels.map((ch) => (
-                        <ChannelListItem
-                          key={ch.id}
-                          channel={ch}
-                          usersById={usersById}
-                          active={Number(ch.id) === Number(selectedId)}
-                          unread={Number(ch.unread_count) || 0}
-                          onSelect={() => openChannel(ch.id)}
-                        />
-                      ))}
-                    </section>
-                  )}
-                  <section>
+                  <section className="mb-3">
                     <p className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                       Channels
                     </p>
@@ -656,6 +663,23 @@ export default function TeamChat() {
                       ))
                     )}
                   </section>
+                  {directChannels.length > 0 && (
+                    <section>
+                      <p className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                        Direct
+                      </p>
+                      {directChannels.map((ch) => (
+                        <ChannelListItem
+                          key={ch.id}
+                          channel={ch}
+                          usersById={usersById}
+                          active={Number(ch.id) === Number(selectedId)}
+                          unread={Number(ch.unread_count) || 0}
+                          onSelect={() => openChannel(ch.id)}
+                        />
+                      ))}
+                    </section>
+                  )}
                 </>
               )}
             </div>
@@ -667,13 +691,13 @@ export default function TeamChat() {
               <ChatEmptyState onCreateChannel={() => setCreateOpen(true)} />
             ) : (
               <>
-                <div className="flex items-center gap-3 border-b border-white/10 bg-white/5 px-5 py-3.5 backdrop-blur-md">
+                <div className="team-chat-thread-header flex items-center gap-3 px-5 py-3.5 backdrop-blur-md">
                   <TeamChatAvatar
                     name={selectedTitle}
                     size="lg"
                   />
                   <div className="min-w-0 flex-1">
-                    <h2 className="truncate text-base font-semibold text-white">
+                    <h2 className="truncate text-base font-semibold theme-text">
                       {selectedTitle}
                     </h2>
                     <TypingIndicator names={typingUsers} />
@@ -757,6 +781,14 @@ export default function TeamChat() {
                             msg={msg}
                             mine={mine}
                             showAuthor={!mine && shouldShowAuthor(index, msg)}
+                            onReply={(message) => {
+                              setReplyingTo(message);
+                              window.requestAnimationFrame(() => {
+                                document
+                                  .querySelector(".team-chat-message-input")
+                                  ?.focus();
+                              });
+                            }}
                           />
                         );
                       })}
@@ -765,8 +797,32 @@ export default function TeamChat() {
                   <div ref={messagesEndRef} className="h-2" />
                 </div>
 
-                <div className="border-t border-white/10 bg-white/5 p-4 backdrop-blur-sm sm:px-6">
+                <div className="team-chat-composer-wrap p-4 backdrop-blur-sm sm:px-6">
                   <form onSubmit={handleSend} className="team-chat-composer p-2">
+                    {replyingTo ? (
+                      <div className="mb-2 flex items-center gap-3 rounded-xl border-l-4 border-eirmon-500 bg-black/5 px-3 py-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-semibold text-eirmon-600">
+                            Replying to{" "}
+                            {replyingTo?.user?.name ??
+                              replyingTo?.author_name ??
+                              "message"}
+                          </p>
+                          <p className="mt-0.5 truncate text-xs text-glass-muted">
+                            {messagePreview(replyingTo) || "Attachment"}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setReplyingTo(null)}
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-glass-muted hover:bg-black/10"
+                          title="Cancel reply"
+                          aria-label="Cancel reply"
+                        >
+                          <FaTimes />
+                        </button>
+                      </div>
+                    ) : null}
                     {file ? (
                       <div className="mb-2 flex items-center justify-between rounded-lg bg-eirmon-50 px-3 py-2 text-xs text-eirmon-900">
                         <span className="truncate font-medium">{file.name}</span>
@@ -783,7 +839,7 @@ export default function TeamChat() {
                         </button>
                       </div>
                     ) : null}
-                    <div className="flex items-end gap-2">
+                    <div className="relative flex items-end gap-2">
                       <input
                         ref={fileInputRef}
                         type="file"
@@ -797,6 +853,53 @@ export default function TeamChat() {
                       >
                         Attach
                       </button>
+                      <div className="relative shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setEmojiOpen((open) => !open)}
+                          className={`flex h-11 w-11 items-center justify-center rounded-xl text-lg transition ${
+                            emojiOpen
+                              ? "bg-eirmon-100 text-eirmon-700"
+                              : "text-slate-500 hover:bg-slate-100 hover:text-eirmon-600"
+                          }`}
+                          title="Add emoji"
+                          aria-label="Add emoji"
+                          aria-expanded={emojiOpen}
+                        >
+                          <FaSmile />
+                        </button>
+                        {emojiOpen ? (
+                          <div className="team-chat-emoji-picker absolute bottom-14 left-0 z-30 w-72 rounded-2xl p-3 shadow-2xl">
+                            <div className="mb-2 flex items-center justify-between">
+                              <p className="text-xs font-semibold theme-text">
+                                Choose an emoji
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => setEmojiOpen(false)}
+                                className="rounded-md p-1 text-glass-muted hover:bg-black/10"
+                                aria-label="Close emoji picker"
+                              >
+                                <FaTimes className="text-xs" />
+                              </button>
+                            </div>
+                            <div className="grid max-h-52 grid-cols-8 gap-1 overflow-y-auto pr-1">
+                              {CHAT_EMOJIS.map((emoji) => (
+                                <button
+                                  key={emoji}
+                                  type="button"
+                                  onClick={() => insertEmoji(emoji)}
+                                  className="flex h-7 w-7 items-center justify-center rounded-lg text-lg transition hover:scale-110 hover:bg-black/10"
+                                  title={emoji}
+                                  aria-label={`Insert ${emoji}`}
+                                >
+                                  {emoji}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
                       <textarea
                         rows={1}
                         value={composer}
@@ -808,7 +911,7 @@ export default function TeamChat() {
                           }
                         }}
                         placeholder="Write a message… (Enter to send)"
-                        className="max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border-0 bg-slate-50/80 px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-eirmon-400/60"
+                        className="team-chat-message-input max-h-32 min-h-[44px] flex-1 resize-none rounded-xl border-0 bg-slate-50/80 px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-eirmon-400/60"
                       />
                       <button
                         type="submit"
