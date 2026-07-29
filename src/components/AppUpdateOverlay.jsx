@@ -28,6 +28,16 @@ export default function AppUpdateOverlay() {
     const off = window.api?.onAppUpdaterEvent?.((event) => {
       if (!event?.type) return;
 
+      if (event.type === "checking") {
+        setState((prev) => ({
+          ...prev,
+          visible: true,
+          status: "checking",
+          message: "Checking for updates...",
+        }));
+        return;
+      }
+
       if (event.type === "available") {
         setState((prev) => ({
           ...prev,
@@ -56,10 +66,23 @@ export default function AppUpdateOverlay() {
         setState((prev) => ({
           ...prev,
           visible: true,
-          status: "installing",
+          status: "ready",
           version: event.version || prev.version,
           percent: 100,
-          message: event.message || "Downloaded. Installing update...",
+          message:
+            event.message ||
+            "Update downloaded. Install it now or after you finish working.",
+        }));
+        return;
+      }
+
+      if (event.type === "not-available") {
+        setState((prev) => ({
+          ...prev,
+          visible: true,
+          status: "current",
+          version: event.version || prev.version,
+          message: "You’re using the latest version.",
         }));
         return;
       }
@@ -87,6 +110,26 @@ export default function AppUpdateOverlay() {
 
   if (!state.visible) return null;
 
+  const installNow = async () => {
+    setState((prev) => ({
+      ...prev,
+      status: "installing",
+      message: "Restarting to install the update...",
+    }));
+    try {
+      const result = await window.api?.installDownloadedUpdateNow?.();
+      if (!result?.ok) {
+        throw new Error(result?.error || "Could not start the installer.");
+      }
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        status: "error",
+        message: error?.message || "Could not install the update.",
+      }));
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[1000] bg-black/45 p-4 backdrop-blur-[1px]">
       <div className="mx-auto mt-10 w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
@@ -104,18 +147,26 @@ export default function AppUpdateOverlay() {
 
         <p className="mt-3 text-sm text-slate-700">{state.message}</p>
 
-        {state.status === "downloading" || state.status === "installing" ? (
+        {state.status === "downloading" ||
+        state.status === "installing" ||
+        state.status === "ready" ? (
           <>
             <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-200">
               <div
                 className="h-full rounded-full bg-blue-600 transition-all duration-300"
                 style={{
-                  width: `${Math.max(0, Math.min(100, state.percent || 0))}%`,
+                  width: `${
+                    state.status === "ready" || state.status === "installing"
+                      ? 100
+                      : Math.max(0, Math.min(100, state.percent || 0))
+                  }%`,
                 }}
               />
             </div>
             <p className="mt-2 text-xs font-medium text-slate-600">
-              {state.status === "installing" ? "100% (download complete)" : details}
+              {state.status === "installing" || state.status === "ready"
+                ? "100% (download complete)"
+                : details}
             </p>
           </>
         ) : null}
@@ -124,6 +175,41 @@ export default function AppUpdateOverlay() {
           <p className="mt-3 text-xs text-emerald-700">
             The app will restart automatically to finish installation.
           </p>
+        ) : null}
+
+        {state.status === "ready" ? (
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                setState((prev) => ({ ...prev, visible: false }))
+              }
+              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Later
+            </button>
+            <button
+              type="button"
+              onClick={installNow}
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Install Now
+            </button>
+          </div>
+        ) : null}
+
+        {state.status === "current" || state.status === "error" ? (
+          <div className="mt-5 flex justify-end">
+            <button
+              type="button"
+              onClick={() =>
+                setState((prev) => ({ ...prev, visible: false }))
+              }
+              className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Close
+            </button>
+          </div>
         ) : null}
       </div>
     </div>

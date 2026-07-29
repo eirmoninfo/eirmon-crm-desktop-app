@@ -4,6 +4,10 @@
   "version": "0.2.4",
   "description": "Eirmon CRM desktop application",
   "author": "Eirmon Solutions <support@eirmonsolutions.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/eirmoninfo/eirmon-crm-desktop-app.git"
+  },
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -84,6 +88,7 @@
       "**/*.node"
     ],
     "generateUpdatesFilesForAllChannels": true,
+    "electronUpdaterCompatibility": ">=2.16",
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
@@ -108,6 +113,15 @@
     },
     "win": {
       "icon": "public/icon.ico",
+      "publish": [
+        {
+          "provider": "github",
+          "owner": "eirmoninfo",
+          "repo": "eirmon-crm-desktop-app",
+          "releaseType": "release",
+          "publishAutoUpdate": true
+        }
+      ],
       "target": [
         {
           "target": "nsis",
@@ -148,7 +162,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "differentialPackage": true
     }
   }
 }

@@ -19,12 +19,17 @@ const { listPrinters } = require("./printers-list.cjs");
 
 /** Lazy-load: destructuring autoUpdater at require-time crashes before app is ready. */
 let autoUpdater = null;
+let updaterInitialized = false;
+let updateCheckPromise = null;
 function getAutoUpdater() {
   if (!autoUpdater) {
     ({ autoUpdater } = require("electron-updater"));
   }
   return autoUpdater;
 }
+
+log.transports.file.level = "info";
+log.transports.console.level = app.isPackaged ? "warn" : "info";
 
 /** Without this, the macOS menu bar shows "Electron" while running `electron .` in dev. */
 app.setName("Eirmon CRM");
@@ -247,6 +252,9 @@ function sendUpdaterEvent(payload) {
 }
 
 function initAutoUpdater() {
+  if (updaterInitialized) return;
+  updaterInitialized = true;
+
   const updater = getAutoUpdater();
   updater.logger = log;
   updater.autoDownload = true;
@@ -258,10 +266,12 @@ function initAutoUpdater() {
   );
 
   updater.on("checking-for-update", () => {
+    log.info("[autoUpdater] Checking for updates");
     sendUpdaterEvent({ type: "checking" });
   });
 
   updater.on("update-available", (info) => {
+    log.info("[autoUpdater] Update available", info?.version);
     sendUpdaterEvent({
       type: "available",
       version: info?.version || "",
@@ -270,6 +280,7 @@ function initAutoUpdater() {
   });
 
   updater.on("update-not-available", (info) => {
+    log.info("[autoUpdater] No update available", info?.version);
     sendUpdaterEvent({
       type: "not-available",
       version: info?.version || "",
@@ -290,17 +301,12 @@ function initAutoUpdater() {
   });
 
   updater.on("update-downloaded", (info) => {
+    log.info("[autoUpdater] Update downloaded", info?.version);
     sendUpdaterEvent({
       type: "downloaded",
       version: info?.version || "",
-      message: "Update downloaded. Installing now...",
+      message: "Update downloaded. Install it now or after you finish working.",
     });
-
-    setTimeout(() => {
-      skipCloseGuard = true;
-      quitConfirmed = true;
-      getAutoUpdater().quitAndInstall(false, true);
-    }, 2000);
   });
 
   updater.on("error", (error) => {
@@ -320,7 +326,8 @@ function clearUpdaterTimer() {
 }
 
 function checkForUpdatesSafe() {
-  return getAutoUpdater()
+  if (updateCheckPromise) return updateCheckPromise;
+  updateCheckPromise = getAutoUpdater()
     .checkForUpdates()
     .catch((err) => {
       log.error("checkForUpdates failed", err);
@@ -329,7 +336,11 @@ function checkForUpdatesSafe() {
         message: err?.message || "Could not check for updates.",
       });
       throw err;
+    })
+    .finally(() => {
+      updateCheckPromise = null;
     });
+  return updateCheckPromise;
 }
 
 function schedulePeriodicUpdateChecks() {
@@ -478,18 +489,21 @@ app.whenReady().then(() => {
     mainWindow?.webContents.toggleDevTools();
   });
 
-  if (!app.isPackaged) {
-    sendUpdaterEvent({
-      type: "disabled",
-      message: "Auto-update checks run only in packaged builds.",
-    });
-  } else {
+  mainWindow.webContents.once("did-finish-load", () => {
+    if (!app.isPackaged) {
+      sendUpdaterEvent({
+        type: "disabled",
+        message: "Auto-update checks run only in packaged builds.",
+      });
+      return;
+    }
+
     initAutoUpdater();
     checkForUpdatesSafe().catch(() => {
       /* already logged in checkForUpdatesSafe */
     });
     schedulePeriodicUpdateChecks();
-  }
+  });
 });
 
 app.on("before-quit", (event) => {
@@ -606,7 +620,18 @@ ipcMain.on("break-end", (_, token) => {
   void systemIdleMonitor.handleBreakEndIPC(token);
 });
 
-ipcMain.handle("app-updater:check-now", async () => {
+function isTrustedMainWindowSender(event) {
+  return Boolean(
+    mainWindow &&
+      !mainWindow.isDestroyed() &&
+      event?.sender?.id === mainWindow.webContents.id
+  );
+}
+
+ipcMain.handle("app-updater:check-now", async (event) => {
+  if (!isTrustedMainWindowSender(event)) {
+    return { ok: false, error: "Untrusted update request." };
+  }
   if (!app.isPackaged) {
     sendUpdaterEvent({
       type: "disabled",
@@ -623,11 +648,15 @@ ipcMain.handle("app-updater:check-now", async () => {
   }
 });
 
-ipcMain.handle("app-updater:install-now", () => {
+ipcMain.handle("app-updater:install-now", (event) => {
+  if (!isTrustedMainWindowSender(event)) {
+    return { ok: false, error: "Untrusted install request." };
+  }
   if (!app.isPackaged) {
     return { ok: false, disabled: true };
   }
   try {
+    log.info("[autoUpdater] User selected Install Now");
     skipCloseGuard = true;
     quitConfirmed = true;
     getAutoUpdater().quitAndInstall(false, true);
