@@ -42,6 +42,9 @@ export default function LoginForm() {
       if (t) {
         await bootstrapElectron(t);
       }
+      window.dispatchEvent(
+        new CustomEvent("collabflow:session-authenticated")
+      );
       navigate("/home");
     } catch (err) {
       setError(errorMessage(err));

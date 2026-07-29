@@ -501,14 +501,14 @@ export default function TaskDetailDrawer({
           </div>
         ) : (
           <>
-            <header className="flex shrink-0 items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
+            <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--theme-glass-border)] px-5 py-4">
               <input
                 id="task-detail-title"
                 value={draft.title}
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, title: e.target.value }))
                 }
-                className="min-w-0 flex-1 border-0 bg-transparent text-xl font-bold text-white outline-none ring-0 placeholder:text-glass-subtle focus:ring-0"
+                className="min-w-0 flex-1 border-0 bg-transparent text-xl font-bold text-[var(--theme-text)] outline-none ring-0 placeholder:text-glass-subtle focus:ring-0"
                 placeholder="Task title"
               />
               <div className="flex shrink-0 items-center gap-1">
@@ -516,7 +516,7 @@ export default function TaskDetailDrawer({
                   type="button"
                   onClick={handlePickFile}
                   disabled={uploading}
-                  className="rounded-xl p-2 text-glass-muted transition hover:bg-white/8 hover:text-[#64d2ff]"
+                  className="rounded-xl p-2 text-glass-muted transition hover:bg-[var(--theme-hover)] hover:text-[var(--theme-accent)]"
                   title="Upload attachment"
                 >
                   <FaPaperclip className="h-5 w-5" />
@@ -533,7 +533,7 @@ export default function TaskDetailDrawer({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-xl p-2 text-glass-muted transition hover:bg-white/8 hover:text-white"
+                  className="rounded-xl p-2 text-glass-muted transition hover:bg-[var(--theme-hover)] hover:text-[var(--theme-text)]"
                   aria-label="Close"
                 >
                   <FaTimes className="h-5 w-5" />
@@ -624,12 +624,12 @@ export default function TaskDetailDrawer({
 
               <p className="mt-3 text-xs text-glass-subtle">
                 Project:{" "}
-                <span className="font-medium text-white">{projectLabel}</span>
+                <span className="font-medium text-[var(--theme-text)]">{projectLabel}</span>
               </p>
 
-              <section className="mt-6 border-t border-white/10 pt-4">
+              <section className="mt-6 border-t border-[var(--theme-glass-border)] pt-4">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-white">
+                  <h3 className="text-sm font-semibold text-[var(--theme-text)]">
                     Subtasks ({subtasksDone}/{subtasksTotal})
                   </h3>
                   {subtasksTotal > 0 && (
@@ -711,8 +711,8 @@ export default function TaskDetailDrawer({
                 </form>
               </section>
 
-              <section className="mt-6 border-t border-white/10 pt-4">
-                <h3 className="mb-2 text-sm font-semibold text-white">
+              <section className="mt-6 border-t border-[var(--theme-glass-border)] pt-4">
+                <h3 className="mb-2 text-sm font-semibold text-[var(--theme-text)]">
                   Attachments
                 </h3>
                 <div
@@ -739,7 +739,7 @@ export default function TaskDetailDrawer({
                             href={resolveAttachmentUrl(a.url)}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-sm font-medium text-[#64d2ff] hover:underline"
+                            className="text-sm font-medium text-[var(--theme-accent)] hover:underline"
                           >
                             {a.name || "File"}
                           </a>
@@ -754,7 +754,7 @@ export default function TaskDetailDrawer({
                   )}
                   {uploading && (
                     <div className="mt-2">
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--theme-hover-strong)]">
                         <div
                           className="h-full bg-[#0a84ff] transition-all"
                           style={{ width: `${uploadPct ?? 0}%` }}
@@ -768,8 +768,8 @@ export default function TaskDetailDrawer({
                 </div>
               </section>
 
-              <section className="mt-6 border-t border-white/10 pt-4">
-                <h3 className="mb-2 text-sm font-semibold text-white">
+              <section className="mt-6 border-t border-[var(--theme-glass-border)] pt-4">
+                <h3 className="mb-2 text-sm font-semibold text-[var(--theme-text)]">
                   Comments
                 </h3>
                 {(task.comments || []).length === 0 ? (
@@ -808,7 +808,7 @@ export default function TaskDetailDrawer({
               </button>
             </div>
 
-            <footer className="shrink-0 border-t border-white/10 bg-white/5 p-4 backdrop-blur-xl">
+            <footer className="shrink-0 border-t border-[var(--theme-glass-border)] bg-[var(--theme-hover)] p-4 backdrop-blur-xl">
               <form onSubmit={handleSendComment} className="flex gap-2">
                 <input
                   value={commentBody}

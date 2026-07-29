@@ -34,16 +34,24 @@ import { showAppNotification } from "./utils/appNotification";
 import { teamChatBootstrap } from "./api/teamChat.api";
 import {
   channelLabel,
+  extractChatMessage,
   getStoredUserId,
-  messagePreview,
+  normalizeMessage,
   parseBootstrap,
 } from "./utils/teamChatHelpers";
+import {
+  leaveTeamChatGlobalChannels,
+  leaveTeamChatUser,
+  subscribeTeamChatGlobalChannels,
+  subscribeTeamChatUser,
+} from "./utils/teamChatEcho";
 
-const CHAT_UNREAD_POLL_MS = 10000;
+const CHAT_UNREAD_POLL_MS = 5000;
 
 function App() {
   const navigate = useNavigate();
   const chatSnapshotRef = useRef(new Map());
+  const notifiedMessageIdsRef = useRef(new Set());
 
   useEffect(() => {
     const token = getToken();
@@ -56,6 +64,14 @@ function App() {
       const detail = event?.detail || {};
       const message = detail.message;
       if (!message?.id) return;
+      const messageKey = String(message.id);
+      if (notifiedMessageIdsRef.current.has(messageKey)) return;
+      notifiedMessageIdsRef.current.add(messageKey);
+      if (notifiedMessageIdsRef.current.size > 250) {
+        notifiedMessageIdsRef.current = new Set(
+          [...notifiedMessageIdsRef.current].slice(-150)
+        );
+      }
 
       const senderName =
         message?.user?.name ??
@@ -67,13 +83,49 @@ function App() {
       const body = preview
         ? `${senderName}: ${preview}`
         : `${senderName} sent a message`;
+      const route = detail.channelId
+        ? `/team-chat/${detail.channelId}`
+        : "/team-chat";
+
+      const notificationItem = {
+        id: `chat-${messageKey}`,
+        title: detail.channelName || "New message",
+        body,
+        route,
+        createdAt: message.created_at || new Date().toISOString(),
+      };
+      window.__collabflowNotifications = [
+        notificationItem,
+        ...(window.__collabflowNotifications || []).filter(
+          (item) => item.id !== notificationItem.id
+        ),
+      ].slice(0, 50);
+      window.dispatchEvent(
+        new CustomEvent("collabflow:notification-added", {
+          detail: notificationItem,
+        })
+      );
+
+      const activeChannel = window.location.pathname.match(/^\/team-chat\/(\d+)/)?.[1];
+      if (!activeChannel || Number(activeChannel) !== Number(detail.channelId)) {
+        const nextUnread = Math.max(
+          0,
+          (Number(window.__collabflowChatUnread) || 0) + 1
+        );
+        window.__collabflowChatUnread = nextUnread;
+        window.dispatchEvent(
+          new CustomEvent("collabflow:team-chat-unread", {
+            detail: { total: nextUnread },
+          })
+        );
+      }
 
       showAppNotification({
         title: `New message${detail.channelName ? ` · ${detail.channelName}` : ""}`,
         body,
         toastMessage: body,
         toastOptions: { duration: 6000 },
-        route: detail.channelId ? `/team-chat/${detail.channelId}` : "/team-chat",
+        route,
         actions: [{ id: "reply", text: "Reply" }],
       }).catch(() => {});
     };
@@ -104,6 +156,88 @@ function App() {
       if (typeof stopNotificationActions === "function") stopNotificationActions();
     };
   }, [navigate]);
+
+  useEffect(() => {
+    let generation = 0;
+
+    const dispatchIncoming = (payload, fallbackChannelId = null) => {
+      const userId = getStoredUserId();
+      const raw =
+        extractChatMessage(payload) ??
+        extractChatMessage(payload?.message) ??
+        extractChatMessage(payload?.data?.message) ??
+        payload?.message ??
+        payload?.data ??
+        payload;
+      const message = normalizeMessage(raw);
+      if (!message?.id) return;
+      if (Number(message.user_id ?? message.user?.id) === Number(userId)) return;
+
+      const channelId =
+        message.channel_id ??
+        message.channel?.id ??
+        payload?.channel_id ??
+        payload?.channel?.id ??
+        payload?.data?.channel_id ??
+        fallbackChannelId;
+      window.dispatchEvent(
+        new CustomEvent("collabflow:team-chat-message", {
+          detail: {
+            message,
+            channelId,
+            channelName:
+              payload?.channel_name ??
+              payload?.channel?.name ??
+              message.channel?.name,
+          },
+        })
+      );
+    };
+
+    const startSubscriptions = async () => {
+      const currentGeneration = ++generation;
+      leaveTeamChatUser();
+      leaveTeamChatGlobalChannels();
+
+      const userId = getStoredUserId();
+      if (userId == null || !getToken()) return;
+
+      subscribeTeamChatUser(userId, { onMessage: dispatchIncoming });
+      try {
+        const response = await teamChatBootstrap();
+        if (currentGeneration !== generation) return;
+        const { channels } = parseBootstrap(response);
+        subscribeTeamChatGlobalChannels(
+          channels.map((channel) => channel.id).filter((id) => id != null),
+          { onMessage: dispatchIncoming }
+        );
+      } catch {
+        // User-channel events and unread polling remain as fallbacks.
+      }
+    };
+
+    const onAuthenticated = () => void startSubscriptions();
+    const onLoggedOut = () => {
+      generation += 1;
+      leaveTeamChatUser();
+      leaveTeamChatGlobalChannels();
+    };
+
+    window.addEventListener("collabflow:session-authenticated", onAuthenticated);
+    window.addEventListener("collabflow:session-logged-out", onLoggedOut);
+    void startSubscriptions();
+
+    return () => {
+      generation += 1;
+      window.removeEventListener(
+        "collabflow:session-authenticated",
+        onAuthenticated
+      );
+      window.removeEventListener("collabflow:session-logged-out", onLoggedOut);
+      leaveTeamChatUser();
+      leaveTeamChatGlobalChannels();
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,20 +272,16 @@ function App() {
             Number(lastMessage?.user_id ?? lastMessage?.user?.id) !==
               Number(getStoredUserId())
           ) {
-            const sender =
-              lastMessage?.user?.name ??
-              lastMessage?.sender?.name ??
-              lastMessage?.author_name ??
-              "Someone";
-            const preview = messagePreview(lastMessage);
             const chatName = channelLabel(channel, usersById);
-            void showAppNotification({
-              title: `New message · ${chatName}`,
-              body: preview ? `${sender}: ${preview}` : `${sender} sent a message`,
-              toastMessage: preview ? `${sender}: ${preview}` : `${sender} sent a message`,
-              route: `/team-chat/${channel.id}`,
-              actions: [{ id: "reply", text: "Reply" }],
-            });
+            window.dispatchEvent(
+              new CustomEvent("collabflow:team-chat-message", {
+                detail: {
+                  message: lastMessage,
+                  channelId: channel.id,
+                  channelName: chatName,
+                },
+              })
+            );
           }
         });
 

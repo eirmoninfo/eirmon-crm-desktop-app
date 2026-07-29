@@ -95,15 +95,28 @@ const CHAT_EMOJIS = [
 ];
 
 function patchChannelLastMessage(channels, channelId, msg) {
-  return channels.map((c) =>
-    Number(c.id) === Number(channelId)
-      ? {
-          ...c,
-          last_message: msg,
-          last_message_preview: messagePreview(msg),
-        }
-      : c
-  );
+  const index = channels.findIndex((c) => Number(c.id) === Number(channelId));
+  if (index < 0) return channels;
+  const current = channels[index];
+  const updated = {
+    ...current,
+    last_message: msg,
+    last_message_preview: messagePreview(msg),
+  };
+  return [updated, ...channels.slice(0, index), ...channels.slice(index + 1)];
+}
+
+function sortChannelsByLatest(channels) {
+  return [...channels].sort((a, b) => {
+    const aTime = new Date(
+      a.last_message?.created_at ?? a.last_message_at ?? a.updated_at ?? 0
+    ).getTime();
+    const bTime = new Date(
+      b.last_message?.created_at ?? b.last_message_at ?? b.updated_at ?? 0
+    ).getTime();
+    return (Number.isFinite(bTime) ? bTime : 0) -
+      (Number.isFinite(aTime) ? aTime : 0);
+  });
 }
 
 function errToast(e, fallback) {
@@ -142,6 +155,7 @@ export default function TeamChat() {
 
   const messagesEndRef = useRef(null);
   const messagesRef = useRef([]);
+  const backgroundMessageIdsRef = useRef(new Set());
   const fileInputRef = useRef(null);
   const typingClearRef = useRef(null);
   const myId = getStoredUserId();
@@ -191,7 +205,7 @@ export default function TeamChat() {
     try {
       const res = await teamChatBootstrap();
       const { channels: ch, users: us } = parseBootstrap(res);
-      setChannels(ch);
+      setChannels(sortChannelsByLatest(ch));
       setUsers(us);
     } catch (e) {
       errToast(e, "Failed to load team chat");
@@ -207,6 +221,35 @@ export default function TeamChat() {
   useEffect(() => {
     getEcho();
   }, []);
+
+  useEffect(() => {
+    const onGlobalMessage = (event) => {
+      const { message, channelId } = event?.detail || {};
+      if (!message?.id || channelId == null) return;
+      if (Number(channelId) === Number(selectedId)) return;
+      const key = String(message.id);
+      if (backgroundMessageIdsRef.current.has(key)) return;
+      backgroundMessageIdsRef.current.add(key);
+      if (backgroundMessageIdsRef.current.size > 250) {
+        backgroundMessageIdsRef.current = new Set(
+          [...backgroundMessageIdsRef.current].slice(-150)
+        );
+      }
+      setChannels((prev) =>
+        patchChannelLastMessage(prev, channelId, message).map((channel) =>
+          Number(channel.id) === Number(channelId)
+            ? {
+                ...channel,
+                unread_count: (Number(channel.unread_count) || 0) + 1,
+              }
+            : channel
+        )
+      );
+    };
+    window.addEventListener("collabflow:team-chat-message", onGlobalMessage);
+    return () =>
+      window.removeEventListener("collabflow:team-chat-message", onGlobalMessage);
+  }, [selectedId]);
 
   const applyIncomingMessage = useCallback(
     (rawMsg, channelId) => {

@@ -1,619 +1,741 @@
-// src/pages/RoughWorkNotepad.jsx
-import { useState, useEffect, useRef, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import {
+  Component,
+  createElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import toast from "react-hot-toast";
-import { apiRequest } from "../api/http"; // your api helper
-import AppLayout from "../components/layout/AppLayout";
-import { GlassButton, GlassCard } from "../components/glass/Glass";
 import jsPDF from "jspdf";
 import Sortable from "sortablejs";
+import {
+  Bold,
+  Bot,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Copy,
+  Download,
+  FileText,
+  GripVertical,
+  Hash,
+  Italic,
+  Link,
+  List,
+  ListOrdered,
+  Loader2,
+  MoreHorizontal,
+  Plus,
+  Redo2,
+  RefreshCw,
+  Share2,
+  Sparkles,
+  Star,
+  Strikethrough,
+  Trash2,
+  Underline,
+  Undo2,
+  Users,
+  X,
+} from "lucide-react";
+import { apiRequest } from "../api/http";
+import { sendEirmonAiMessage } from "../api/eirmonAi.api";
+import AppLayout from "../components/layout/AppLayout";
+import {
+  NOTE_TEMPLATES,
+  accessLabel,
+  canEditNote,
+  getNoteCollaborators,
+  mergeSharedNote,
+  selectAfterDelete,
+  updateNote,
+} from "../utils/workspaceNotesModel";
 
-const RoughWorkNotepad = () => {
-  const navigate = useNavigate();
+const AI_MODES = [
+  ["Summarize", "Summarize this page clearly and concisely."],
+  ["Next actions", "Extract the concrete next actions from this page."],
+  ["Polish wording", "Polish the wording of this page while preserving its meaning."],
+  ["Expand", "Expand this page with useful detail while preserving its intent."],
+];
 
+function initials(name) {
+  return String(name || "?")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+}
+
+function htmlToText(html) {
+  const element = document.createElement("div");
+  element.innerHTML = html || "";
+  return element.innerText.trim();
+}
+
+function textToHtml(text) {
+  const element = document.createElement("div");
+  String(text || "")
+    .split(/\n{2,}/)
+    .forEach((paragraph) => {
+      const p = document.createElement("p");
+      p.textContent = paragraph;
+      element.appendChild(p);
+    });
+  return element.innerHTML;
+}
+
+function IconButton({ label, disabled, onClick, children, active = false }) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={`notes-icon-button ${active ? "notes-icon-button-active" : ""}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+class WorkspaceNotesErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error("[WorkspaceNotes] Render failed", error, info);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <AppLayout noPadding mainClassName="workspace-notes-host">
+        <div className="notes-route-error">
+          <FileText size={32} />
+          <h1>Workspace Notes could not open</h1>
+          <p>{this.state.error?.message || "An unexpected page error occurred."}</p>
+          <button type="button" onClick={() => window.location.reload()}>
+            <RefreshCw size={15} /> Reload workspace
+          </button>
+        </div>
+      </AppLayout>
+    );
+  }
+}
+
+function WorkspaceNotesContent() {
   const [notes, setNotes] = useState([]);
+  const [users, setUsers] = useState([]);
   const [activeNoteId, setActiveNoteId] = useState(null);
-  const [saveStatus, setSaveStatus] = useState("Ready. Auto-save enabled.");
-  const [lastSaved, setLastSaved] = useState("Just now");
-
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [deleteNoteId, setDeleteNoteId] = useState(null);
-
-  const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [shareNoteId, setShareNoteId] = useState(null);
+  const [section, setSection] = useState("pages");
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [saveState, setSaveState] = useState({});
+  const [shareOpen, setShareOpen] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiRunning, setAiRunning] = useState("");
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [permission, setPermission] = useState("view");
-  const [users, setUsers] = useState([]);
-
-  const tabsRef = useRef(null);
+  const [favorites, setFavorites] = useState(() => new Set());
+  const listRef = useRef(null);
   const sortableRef = useRef(null);
-  const autoSaveTimeout = useRef(null);
+  const saveTimersRef = useRef(new Map());
 
   const activeNote = useMemo(
-    () => notes.find((n) => n.id === activeNoteId),
+    () => notes.find((note) => String(note.id) === String(activeNoteId)) ?? null,
     [notes, activeNoteId]
   );
-  const isReadOnly =
-    !!activeNote && !activeNote.is_owner && activeNote.permission === "view";
+  const editable = canEditNote(activeNote);
+  const collaborators = useMemo(
+    () => getNoteCollaborators(activeNote),
+    [activeNote]
+  );
 
-  // ---------- Load notes + users ----------
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const res = await apiRequest("/rough-work");
-        if (res?.success) {
-          const loaded = res.notes || [];
-          setNotes(loaded);
-          if (loaded.length > 0) setActiveNoteId(loaded[0].id);
+  const visibleNotes = useMemo(() => {
+    if (section === "meetings") {
+      return notes.filter((note) =>
+        `${note.title || ""} ${note.template || ""}`.toLowerCase().includes("meeting")
+      );
+    }
+    if (section === "recents") {
+      return [...notes].sort(
+        (a, b) =>
+          new Date(b.updated_at || b.created_at || 0) -
+          new Date(a.updated_at || a.created_at || 0)
+      );
+    }
+    return notes;
+  }, [notes, section]);
+
+  const loadWorkspace = useCallback(async ({ preserveSelection = true } = {}) => {
+    setLoading(true);
+    setLoadError("");
+    try {
+      const [notesResponse, usersResponse] = await Promise.all([
+        apiRequest("/rough-work"),
+        apiRequest("/users/company"),
+      ]);
+      const loaded = notesResponse?.notes ?? notesResponse?.data?.notes ?? [];
+      setNotes(Array.isArray(loaded) ? loaded : []);
+      setUsers(usersResponse?.data ?? usersResponse?.users ?? []);
+      setActiveNoteId((current) => {
+        if (
+          preserveSelection &&
+          loaded.some((note) => String(note.id) === String(current))
+        ) {
+          return current;
         }
-
-        const usersRes = await apiRequest("/users/company");
-        setUsers(usersRes?.data || []);
-      } catch (err) {
-        toast.error("Failed to load notes");
-      }
-    };
-
-    fetchData();
+        return loaded[0]?.id ?? null;
+      });
+    } catch (error) {
+      setLoadError(error?.message || "Workspace Notes could not be loaded.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  // ---------- Sortable tabs (prevent multiple instances) ----------
   useEffect(() => {
-    if (!tabsRef.current) return;
+    const timers = saveTimersRef.current;
+    queueMicrotask(() => void loadWorkspace({ preserveSelection: false }));
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+    };
+  }, [loadWorkspace]);
 
-    if (sortableRef.current) {
-      sortableRef.current.destroy();
-      sortableRef.current = null;
-    }
-
-    sortableRef.current = new Sortable(tabsRef.current, {
+  useEffect(() => {
+    if (!listRef.current || section !== "pages") return undefined;
+    const sortable = new Sortable(listRef.current, {
       animation: 150,
-      handle: ".tab",
-      filter: ".shared-tab",
-      onEnd: async () => {
-        const order = Array.from(tabsRef.current.children)
-          .filter((el) => !el.classList.contains("shared-tab"))
-          .map((el) => el.dataset.noteId);
-
+      handle: ".notes-drag-handle",
+      filter: ".notes-shared-page",
+      onEnd: async ({ oldIndex, newIndex }) => {
+        if (oldIndex === newIndex || oldIndex == null || newIndex == null) return;
+        const owned = notes.filter((note) => note.is_owner);
+        const [moved] = owned.splice(oldIndex, 1);
+        owned.splice(newIndex, 0, moved);
+        const shared = notes.filter((note) => !note.is_owner);
+        setNotes([...owned, ...shared]);
         try {
           await apiRequest("/rough-work/reorder", {
             method: "POST",
-            body: JSON.stringify({ order }),
+            body: { order: owned.map((note) => note.id) },
           });
-          toast.success("Notes reordered");
-        } catch (err) {
-          toast.error("Reorder failed");
+        } catch {
+          toast.error("Page order could not be saved.");
+          void loadWorkspace();
         }
       },
     });
-
+    sortableRef.current = sortable;
     return () => {
-      if (sortableRef.current) {
-        sortableRef.current.destroy();
-        sortableRef.current = null;
+      if (sortableRef.current === sortable) sortableRef.current = null;
+      try {
+        sortable.destroy();
+      } catch {
+        // React Strict Mode may run effect cleanup twice in development.
       }
     };
-  }, [notes]);
+  }, [notes, section, loadWorkspace]);
 
-  // ---------- Helper: get editor ----------
-  const getEditor = (noteId) =>
-    document.getElementById(`editor-${noteId}`);
-
-  // ---------- When switching note: set editor HTML ONLY ONCE ----------
-  useEffect(() => {
-    if (!activeNoteId) return;
-
-    const note = notes.find((n) => n.id === activeNoteId);
-    const editor = getEditor(activeNoteId);
-
-    // If editor is not yet in DOM, wait a tick.
-    if (!editor) {
-      setTimeout(() => {
-        const ed = getEditor(activeNoteId);
-        if (ed && note) ed.innerHTML = note.content || "";
-      }, 0);
-      return;
-    }
-
-    if (note) editor.innerHTML = note.content || "";
-  }, [activeNoteId]); // IMPORTANT: only on note switch
-
-  // ---------- Auto-save logic ----------
-  const autoSave = (noteId, content) => {
-    if (!noteId) return;
-
-    if (autoSaveTimeout.current) clearTimeout(autoSaveTimeout.current);
-
-    autoSaveTimeout.current = setTimeout(async () => {
-      setSaveStatus("Saving...");
-      try {
-        await apiRequest(`/rough-work/${noteId}`, {
-          method: "PUT",
-          body: JSON.stringify({ content }),
-        });
-
-        setLastSaved(
-          new Date().toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })
-        );
-
-        setSaveStatus("Saved");
-        setTimeout(() => setSaveStatus("Ready. Auto-save enabled."), 1500);
-      } catch (err) {
-        setSaveStatus("Error — retrying...");
-        setTimeout(() => autoSave(noteId, content), 2500);
-      }
-    }, 900);
-  };
-
-  // ---------- Typing: update notes state (prevents disappearing) + autosave (prevents cursor jump) ----------
-  const handleContentChange = (e) => {
-    if (!activeNoteId) return;
-
-    const content = e.currentTarget.innerHTML;
-
-    // ✅ keep latest content in state so re-render never wipes editor
-    setNotes((prev) =>
-      prev.map((n) => (n.id === activeNoteId ? { ...n, content } : n))
-    );
-
-    autoSave(activeNoteId, content);
-  };
-
-  const switchTab = (noteId) => {
-    setActiveNoteId(noteId);
-  };
-
-  const createNewNote = async () => {
-    try {
-      const res = await apiRequest("/rough-work", { method: "POST" });
-      if (res?.success) {
-        setNotes((prev) => [...prev, res.note]);
-        setActiveNoteId(res.note.id);
-        toast.success("New note created");
-      }
-    } catch (err) {
-      toast.error("Failed to create note");
-    }
-  };
-
-  const openDeleteModal = (noteId) => {
-    setDeleteNoteId(noteId);
-    setDeleteModalOpen(true);
-  };
-
-  const confirmDelete = async () => {
-    try {
-      await apiRequest(`/rough-work/${deleteNoteId}`, { method: "DELETE" });
-
-      setNotes((prev) => prev.filter((n) => n.id !== deleteNoteId));
-
-      if (activeNoteId === deleteNoteId) {
-        const remaining = notes.filter((n) => n.id !== deleteNoteId);
-        setActiveNoteId(remaining[0]?.id || null);
-      }
-
-      toast.success("Note deleted");
-    } catch (err) {
-      toast.error("Delete failed");
-    }
-    setDeleteModalOpen(false);
-  };
-
-  const openShareModal = (noteId) => {
-    setShareNoteId(noteId);
-    setSelectedUsers([]);
-    setPermission("view");
-    setShareModalOpen(true);
-  };
-
-  const handleShare = async (e) => {
-    e.preventDefault();
-    if (selectedUsers.length === 0)
-      return toast.error("Select at least one user");
-
-    try {
-      const res = await apiRequest(`/rough-work/${shareNoteId}/share`, {
-        method: "POST",
-        body: JSON.stringify({
-          user_ids: selectedUsers,
-          permission,
-        }),
-      });
-
-      if (res?.success) {
-        toast.success(res.message || "Note shared");
-        setShareModalOpen(false);
-      }
-    } catch (err) {
-      toast.error("Share failed");
-    }
-  };
-
-  const renameTitle = async (noteId, newTitle) => {
-    if (!newTitle?.trim()) return;
-
-    const title = newTitle.trim();
-
-    // update UI instantly
-    setNotes((prev) =>
-      prev.map((n) => (n.id === noteId ? { ...n, title } : n))
-    );
-
+  const persistNote = useCallback(async (noteId, patch) => {
+    setSaveState((current) => ({ ...current, [noteId]: "saving" }));
     try {
       await apiRequest(`/rough-work/${noteId}`, {
         method: "PUT",
-        body: JSON.stringify({ title }),
+        body: patch,
       });
-    } catch (err) {
-      toast.error("Rename failed");
+      setSaveState((current) => ({ ...current, [noteId]: "saved" }));
+    } catch {
+      setSaveState((current) => ({ ...current, [noteId]: "failed" }));
+    }
+  }, []);
+
+  const scheduleSave = useCallback(
+    (noteId, patch) => {
+      const existing = saveTimersRef.current.get(noteId);
+      if (existing) clearTimeout(existing);
+      setSaveState((current) => ({ ...current, [noteId]: "pending" }));
+      const timer = setTimeout(() => {
+        saveTimersRef.current.delete(noteId);
+        void persistNote(noteId, patch);
+      }, 800);
+      saveTimersRef.current.set(noteId, timer);
+    },
+    [persistNote]
+  );
+
+  const changeContent = (event) => {
+    if (!activeNote || !editable) return;
+    const content = event.currentTarget.innerHTML;
+    setNotes((current) => updateNote(current, activeNote.id, { content }));
+    scheduleSave(activeNote.id, { content });
+  };
+
+  const changeTitle = (title) => {
+    if (!activeNote || !editable) return;
+    setNotes((current) => updateNote(current, activeNote.id, { title }));
+    scheduleSave(activeNote.id, { title });
+  };
+
+  const createPage = async (template) => {
+    setTemplateOpen(false);
+    try {
+      const response = await apiRequest("/rough-work", { method: "POST" });
+      const created = response?.note ?? response?.data?.note;
+      if (!created?.id) throw new Error("The backend did not return the new page.");
+      const next = { ...created, title: template.title, content: template.content };
+      setNotes((current) => [...current, next]);
+      setActiveNoteId(next.id);
+      await persistNote(next.id, {
+        title: template.title,
+        content: template.content,
+      });
+    } catch (error) {
+      toast.error(error?.message || "Page could not be created.");
     }
   };
 
-  const formatText = (command, value = null) => {
-    const editor = getEditor(activeNoteId);
-    if (!editor || editor.isContentEditable === "false") {
-      toast("This note is read-only");
-      return;
+  const deletePage = async () => {
+    if (!deleteTarget) return;
+    try {
+      await apiRequest(`/rough-work/${deleteTarget.id}`, { method: "DELETE" });
+      const nextId = selectAfterDelete(notes, deleteTarget.id, activeNoteId);
+      setNotes((current) =>
+        current.filter((note) => String(note.id) !== String(deleteTarget.id))
+      );
+      setActiveNoteId(nextId);
+      setDeleteTarget(null);
+    } catch {
+      toast.error("Page could not be deleted.");
     }
+  };
 
+  const sharePage = async (event) => {
+    event.preventDefault();
+    if (!activeNote || selectedUsers.length === 0) return;
+    try {
+      const response = await apiRequest(`/rough-work/${activeNote.id}/share`, {
+        method: "POST",
+        body: { user_ids: selectedUsers, permission },
+      });
+      setNotes((current) =>
+        updateNote(
+          current,
+          activeNote.id,
+          mergeSharedNote(activeNote, response)
+        )
+      );
+      setShareOpen(false);
+      setSelectedUsers([]);
+      await loadWorkspace();
+      toast.success("Page shared.");
+    } catch (error) {
+      toast.error(error?.message || "Page could not be shared.");
+    }
+  };
+
+  const format = (command, value = null) => {
+    if (!editable) return;
     document.execCommand(command, false, value);
-
-    // ✅ after formatting, sync state + autosave
-    const content = editor.innerHTML;
-
-    setNotes((prev) =>
-      prev.map((n) => (n.id === activeNoteId ? { ...n, content } : n))
-    );
-
-    autoSave(activeNoteId, content);
+    const editor = document.getElementById(`workspace-note-${activeNote.id}`);
+    if (editor) changeContent({ currentTarget: editor });
   };
 
-  const downloadPDF = () => {
-    const doc = new jsPDF();
-    const editor = getEditor(activeNoteId);
-    const title = notes.find((n) => n.id === activeNoteId)?.title || "Note";
-
-    doc.setFontSize(16);
-    doc.text(title, 10, 10);
-    doc.setFontSize(12);
-    doc.text(editor?.innerText || "", 10, 20, { maxWidth: 190 });
-    doc.save(`${title}.pdf`);
-    toast.success("PDF downloaded");
+  const copyPage = async () => {
+    await navigator.clipboard.writeText(htmlToText(activeNote?.content));
+    toast.success("Page copied.");
   };
 
-  const copyToClipboard = () => {
-    const editor = getEditor(activeNoteId);
-    navigator.clipboard.writeText(editor?.innerText || "");
-    toast.success("Copied to clipboard");
+  const exportPdf = () => {
+    const pdf = new jsPDF();
+    pdf.setFontSize(18);
+    pdf.text(activeNote?.title || "Untitled", 14, 18);
+    pdf.setFontSize(11);
+    pdf.text(htmlToText(activeNote?.content), 14, 30, { maxWidth: 180 });
+    pdf.save(`${activeNote?.title || "page"}.pdf`);
   };
 
-  const clearCurrentNote = () => {
-    if (!confirm("Clear current note?")) return;
-
-    const editor = getEditor(activeNoteId);
-    if (!editor) return;
-
-    editor.innerHTML = "";
-
-    // ✅ sync state + autosave
-    setNotes((prev) =>
-      prev.map((n) => (n.id === activeNoteId ? { ...n, content: "" } : n))
-    );
-
-    autoSave(activeNoteId, "");
-    toast.success("Note cleared");
+  const runAi = async (label, instruction) => {
+    if (!editable || !activeNote) return;
+    const source = htmlToText(activeNote.content);
+    if (!source) return toast.error("Add some text before using AI.");
+    setAiRunning(label);
+    try {
+      const result = await sendEirmonAiMessage({
+        message: `${instruction}\n\nPage title: ${activeNote.title}\n\n${source}`,
+        context: { pathname: "/rough-work" },
+      });
+      if (!result?.text) throw new Error("AI returned no text.");
+      const content = textToHtml(result.text);
+      setNotes((current) => updateNote(current, activeNote.id, { content }));
+      scheduleSave(activeNote.id, { content });
+    } catch (error) {
+      toast.error(error?.message || "AI could not update this page.");
+    } finally {
+      setAiRunning("");
+    }
   };
+
+  const status = saveState[activeNoteId] ?? "saved";
 
   return (
-    <AppLayout>
-        <div className="max-w-5xl mx-auto">
-          <GlassCard>
-            <div className="flex items-center justify-between mb-6">
-              <h1 className="text-3xl font-bold theme-text flex items-center gap-3">
-                  <svg
-                    className="w-10 h-10 text-teal-600"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                    />
-                  </svg>
-                  Workspace Notes
-                </h1>
-
-                <div className="flex items-center gap-4">
-                  <div
-                    className="text-sm font-medium text-glass-muted"
-                  >
-                    {saveStatus}
-                  </div>
-
-                  <GlassButton onClick={createNewNote}>
-                    New Note
-                  </GlassButton>
-                </div>
-              </div>
-
-              {/* Tabs */}
-              <div
-                ref={tabsRef}
-                className="flex flex-wrap border-b border-white/10 mb-4 overflow-x-auto"
+    <AppLayout noPadding mainClassName="workspace-notes-host">
+      <div className="workspace-notes">
+        <aside className="knowledge-sidebar">
+          <div className="knowledge-sidebar-header">
+            <div>
+              <p>Workspace</p>
+              <h1>Knowledge</h1>
+            </div>
+          </div>
+          <nav className="knowledge-nav" aria-label="Knowledge sections">
+            {[
+              ["pages", FileText, "Pages"],
+              ["meetings", Users, "Meetings"],
+              ["recents", Clock3, "Recents"],
+            ].map(([id, icon, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={section === id ? "active" : ""}
+                onClick={() => setSection(id)}
               >
-                {notes.map((note) => (
-                  <div
-                    key={note.id}
-                    data-note-id={note.id}
-                    className={`tab flex items-center px-4 py-2 cursor-pointer hover:bg-white/10 transition group ${
-                      activeNoteId === note.id
-                        ? "border-b-2 border-[#0a84ff] bg-white/5"
-                        : ""
-                    } ${!note.is_owner ? "shared-tab" : ""}`}
-                    onClick={() => switchTab(note.id)}
-                  >
+                {createElement(icon, { size: 16 })}
+                {label}
+              </button>
+            ))}
+          </nav>
+          <div className="knowledge-list-label">
+            <span>{section === "pages" ? "Pages" : section}</span>
+            <span>{visibleNotes.length}</span>
+          </div>
+          <div ref={listRef} className="knowledge-page-list">
+            {loading ? (
+              <div className="notes-list-state"><Loader2 className="animate-spin" size={18} /> Loading</div>
+            ) : visibleNotes.length === 0 ? (
+              <div className="notes-list-state">No pages here yet.</div>
+            ) : (
+              visibleNotes.map((note) => (
+                <button
+                  key={note.id}
+                  type="button"
+                  data-note-id={note.id}
+                  className={`knowledge-page-row ${
+                    String(note.id) === String(activeNoteId) ? "active" : ""
+                  } ${!note.is_owner ? "notes-shared-page" : ""}`}
+                  onClick={() => setActiveNoteId(note.id)}
+                >
+                  {note.is_owner ? (
+                    <GripVertical className="notes-drag-handle" size={14} />
+                  ) : (
+                    <Users className="notes-shared-indicator" size={14} />
+                  )}
+                  <FileText size={15} />
+                  <span>{note.title || "Untitled"}</span>
+                  {note.is_owner ? (
                     <span
-                      className="title theme-text font-medium mr-2"
-                      contentEditable={note.is_owner ? "true" : "false"}
-                      suppressContentEditableWarning
-                      onDoubleClick={(e) => {
-                        if (note.is_owner) e.target.focus();
+                      role="button"
+                      tabIndex={0}
+                      title="Delete page"
+                      aria-label={`Delete ${note.title || "page"}`}
+                      className="notes-delete-page"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setDeleteTarget(note);
                       }}
-                      onBlur={(e) => {
-                        if (note.is_owner)
-                          renameTitle(note.id, e.target.textContent);
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setDeleteTarget(note);
+                        }
                       }}
                     >
-                      {note.title}
-                      {!note.is_owner && (
-                        <span className="text-xs text-teal-600 ml-2">
-                          (Shared by {note.shared_by})
-                        </span>
-                      )}
+                      <Trash2 size={14} />
                     </span>
-
-                    {note.is_owner && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openShareModal(note.id);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 text-blue-600 hover:text-blue-800 mx-1"
-                        title="Share"
-                      >
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m9.632 2.684a3 3 0 10-6 0m6 0a3 3 0 01-6 0m6 0v3m-6-3v3m-9-3h18"
-                          />
-                        </svg>
-                      </button>
-                    )}
-
-                    {note.is_owner ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openDeleteModal(note.id);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 text-red-600 hover:text-red-800 ml-auto"
-                        title="Delete"
-                      >
-                        <svg
-                          className="w-4 h-4"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M6 18L18 6M6 6l12 12"
-                          />
-                        </svg>
-                      </button>
-                    ) : (
-                      <span
-                        className={`ml-auto text-xs font-medium ${
-                          note.permission === "edit"
-                            ? "text-green-600"
-                            : "text-gray-400"
-                        }`}
-                      >
-                        {note.permission === "edit" ? "Can edit" : "Read-only"}
-                      </span>
-                    )}
-                  </div>
+                  ) : null}
+                </button>
+              ))
+            )}
+          </div>
+          <div className="knowledge-new-page">
+            <button type="button" onClick={() => setTemplateOpen((open) => !open)}>
+              <Plus size={16} /> New page <ChevronDown size={14} />
+            </button>
+            {templateOpen ? (
+              <div className="notes-popover notes-template-menu">
+                {NOTE_TEMPLATES.map((template) => (
+                  <button key={template.id} type="button" onClick={() => void createPage(template)}>
+                    <FileText size={15} />
+                    <span>{template.name}</span>
+                  </button>
                 ))}
               </div>
+            ) : null}
+          </div>
+        </aside>
 
-              {/* Toolbar */}
-              <div className="flex items-center gap-2 mb-4 bg-white/5 p-2 rounded-lg border border-white/10">
-                <button onClick={() => formatText("bold")} title="Bold">
-                  <b>B</b>
+        <section className="notes-document">
+          {loadError ? (
+            <div className="notes-error-state">
+              <FileText size={28} />
+              <p>{loadError}</p>
+              <button type="button" onClick={() => void loadWorkspace()}>
+                <RefreshCw size={15} /> Retry
+              </button>
+            </div>
+          ) : !loading && !activeNote ? (
+            <div className="notes-empty-state">
+              <FileText size={32} />
+              <h2>No page selected</h2>
+              <p>Create a page to start building your workspace knowledge.</p>
+              <button type="button" onClick={() => setTemplateOpen(true)}>
+                <Plus size={16} /> New page
+              </button>
+            </div>
+          ) : activeNote ? (
+            <>
+              <header className="notes-document-header">
+                <div className="notes-title-group">
+                  <FileText className="notes-page-icon" size={22} />
+                  <input
+                    value={activeNote.title || ""}
+                    onChange={(event) => changeTitle(event.target.value)}
+                    readOnly={!editable}
+                    aria-label="Page title"
+                    placeholder="Untitled"
+                  />
+                  <IconButton
+                    label={favorites.has(activeNote.id) ? "Remove favorite" : "Add favorite"}
+                    onClick={() =>
+                      setFavorites((current) => {
+                        const next = new Set(current);
+                        if (next.has(activeNote.id)) next.delete(activeNote.id);
+                        else next.add(activeNote.id);
+                        return next;
+                      })
+                    }
+                    active={favorites.has(activeNote.id)}
+                  >
+                    <Star size={16} fill={favorites.has(activeNote.id) ? "currentColor" : "none"} />
+                  </IconButton>
+                  <span className="notes-access-label">{accessLabel(activeNote)}</span>
+                </div>
+                <div className="notes-header-actions">
+                  <div className="notes-collaborators" aria-label="Page collaborators">
+                    {collaborators.map((person) => (
+                      <div
+                        key={person.id}
+                        className="notes-collaborator"
+                        title={`${person.name} — ${
+                          person.isOwner
+                            ? "Page owner"
+                            : person.permission === "edit"
+                              ? "Edit access"
+                              : "View access"
+                        }`}
+                      >
+                        <span>{initials(person.name)}</span>
+                        <strong>{person.name}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className={`notes-save-status ${status}`}
+                    title={status === "failed" ? "Retry saving" : "Autosave status"}
+                    onClick={() => {
+                      if (status === "failed") {
+                        void persistNote(activeNote.id, {
+                          title: activeNote.title,
+                          content: activeNote.content,
+                        });
+                      }
+                    }}
+                  >
+                    {status === "saving" || status === "pending" ? (
+                      <><Loader2 size={13} className="animate-spin" /> Saving</>
+                    ) : status === "failed" ? (
+                      <><X size={13} /> Save failed</>
+                    ) : (
+                      <><Check size={13} /> Saved</>
+                    )}
+                  </button>
+                  {activeNote.is_owner ? (
+                    <button className="notes-share-button" type="button" onClick={() => setShareOpen(true)}>
+                      <Share2 size={15} /> Share
+                    </button>
+                  ) : null}
+                  <div className="notes-menu-wrap">
+                    <IconButton label="More actions" onClick={() => setMoreOpen((open) => !open)}>
+                      <MoreHorizontal size={18} />
+                    </IconButton>
+                    {moreOpen ? (
+                      <div className="notes-popover notes-more-menu">
+                        <button type="button" onClick={() => void copyPage()}><Copy size={15} /> Copy page</button>
+                        <button type="button" onClick={exportPdf}><Download size={15} /> Export PDF</button>
+                        {activeNote.is_owner ? (
+                          <button className="danger" type="button" onClick={() => setDeleteTarget(activeNote)}>
+                            <Trash2 size={15} /> Delete page
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </header>
+
+              <div className="notes-toolbar" role="toolbar" aria-label="Formatting toolbar">
+                <button type="button" disabled={!editable} onClick={() => format("insertParagraph")}>
+                  <Plus size={15} /> Insert
                 </button>
-                <button onClick={() => formatText("italic")} title="Italic">
-                  <i>I</i>
-                </button>
-                <button
-                  onClick={() => formatText("underline")}
-                  title="Underline"
+                <span className="notes-toolbar-divider" />
+                <IconButton label="Undo" disabled={!editable} onClick={() => format("undo")}><Undo2 size={16} /></IconButton>
+                <IconButton label="Redo" disabled={!editable} onClick={() => format("redo")}><Redo2 size={16} /></IconButton>
+                <span className="notes-toolbar-divider" />
+                <IconButton label="Bold" disabled={!editable} onClick={() => format("bold")}><Bold size={16} /></IconButton>
+                <IconButton label="Italic" disabled={!editable} onClick={() => format("italic")}><Italic size={16} /></IconButton>
+                <IconButton label="Underline" disabled={!editable} onClick={() => format("underline")}><Underline size={16} /></IconButton>
+                <IconButton label="Strikethrough" disabled={!editable} onClick={() => format("strikeThrough")}><Strikethrough size={16} /></IconButton>
+                <IconButton label="Bulleted list" disabled={!editable} onClick={() => format("insertUnorderedList")}><List size={16} /></IconButton>
+                <IconButton label="Numbered list" disabled={!editable} onClick={() => format("insertOrderedList")}><ListOrdered size={16} /></IconButton>
+                <IconButton
+                  label="Add link"
+                  disabled={!editable}
+                  onClick={() => {
+                    const url = window.prompt("Enter a URL");
+                    if (url) format("createLink", url);
+                  }}
                 >
-                  <u>U</u>
+                  <Link size={16} />
+                </IconButton>
+                <button type="button" disabled={!editable} onClick={() => format("formatBlock", "h2")}>
+                  <Hash size={15} /> Heading
                 </button>
-                <button
-                  onClick={() => formatText("strikeThrough")}
-                  title="Strikethrough"
-                >
-                  <s>S</s>
-                </button>
-                <button
-                  onClick={() => formatText("insertUnorderedList")}
-                  title="Bullet List"
-                >
-                  •
-                </button>
-                <button
-                  onClick={() => formatText("insertOrderedList")}
-                  title="Numbered List"
-                >
-                  1.
-                </button>
-                <button
-                  onClick={() =>
-                    formatText("createLink", prompt("Enter URL") || "")
-                  }
-                  title="Link"
-                >
-                  🔗
-                </button>
-                <button
-                  onClick={() => formatText("justifyCenter")}
-                  title="Center"
-                >
-                  ⟺
-                </button>
-                <button onClick={() => formatText("undo")} title="Undo">
-                  ↩️
-                </button>
-                <button onClick={() => formatText("redo")} title="Redo">
-                  ↪️
-                </button>
-                <button onClick={downloadPDF} title="Download PDF">
-                  PDF
-                </button>
+                <IconButton label="AI assistant" disabled={!editable} onClick={() => setAiOpen((open) => !open)}><Sparkles size={16} /></IconButton>
+                <IconButton label="Copy page" onClick={() => void copyPage()}><Copy size={16} /></IconButton>
+                <IconButton label="Export PDF" onClick={exportPdf}><Download size={16} /></IconButton>
               </div>
 
-              {/* Editor */}
-              {activeNote && (
-                <div className="relative">
+              <div className="notes-editor-scroll">
+                <div className="notes-editor-canvas">
                   <div
-                    id={`editor-${activeNote.id}`}
-                    className={`notepad-editor min-h-[50vh] p-5 border border-[var(--theme-glass-border)] rounded-xl focus-within:ring-2 focus-within:ring-[#0a84ff]/50 shadow-inner prose max-w-none theme-text ${
-                      isReadOnly
-                        ? "bg-[var(--theme-hover)] cursor-not-allowed"
-                        : "bg-[var(--theme-hover)]"
-                    }`}
-                    contentEditable={!isReadOnly}
+                    key={activeNote.id}
+                    id={`workspace-note-${activeNote.id}`}
+                    className={`notes-rich-editor ${editable ? "" : "read-only"}`}
+                    contentEditable={editable}
                     suppressContentEditableWarning
-                    onInput={handleContentChange}
+                    data-placeholder="Start typing or type / for menu"
+                    onInput={changeContent}
+                    dangerouslySetInnerHTML={{ __html: activeNote.content || "" }}
+                    aria-label="Page content"
                   />
                 </div>
-              )}
-
-              {/* Footer */}
-              <div className="mt-4 flex justify-between items-center">
-                <div className="text-sm text-glass-muted">
-                  Last saved: <span>{lastSaved}</span>
-                </div>
-                <div className="flex gap-4">
-                  <button
-                    onClick={copyToClipboard}
-                    className="px-5 py-2 bg-teal-100 text-teal-700 rounded-lg hover:bg-teal-200 flex items-center gap-2"
-                  >
-                    Copy
-                  </button>
-                  <button
-                    onClick={clearCurrentNote}
-                    className="px-5 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 flex items-center gap-2"
-                  >
-                    Clear Current
-                  </button>
-                </div>
               </div>
-          </GlassCard>
-        </div>
 
-      {deleteModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <GlassCard className="max-w-sm w-full mx-4">
-            <h3 className="text-lg font-bold mb-4 theme-text">Delete Note?</h3>
-            <p className="text-glass-muted mb-6">This action cannot be undone.</p>
-            <div className="flex justify-end gap-3">
-              <GlassButton variant="secondary" onClick={() => setDeleteModalOpen(false)}>
-                Cancel
-              </GlassButton>
-              <GlassButton variant="danger" onClick={confirmDelete}>
-                Delete
-              </GlassButton>
+              <section className={`notes-ai-panel ${aiOpen ? "open" : ""}`}>
+                <button type="button" className="notes-ai-toggle" onClick={() => setAiOpen((open) => !open)}>
+                  <Bot size={17} />
+                  <span>AI assistant</span>
+                  {aiOpen ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
+                </button>
+                {aiOpen ? (
+                  <div className="notes-ai-actions">
+                    {AI_MODES.map(([label, prompt]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        disabled={!editable || Boolean(aiRunning)}
+                        onClick={() => void runAi(label, prompt)}
+                      >
+                        {aiRunning === label ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+            </>
+          ) : null}
+        </section>
+      </div>
+
+      {shareOpen && activeNote ? (
+        <div className="notes-modal-backdrop" role="presentation">
+          <div className="notes-modal" role="dialog" aria-modal="true" aria-labelledby="share-page-title">
+            <div className="notes-modal-header">
+              <div><h2 id="share-page-title">Share “{activeNote.title || "Untitled"}”</h2><p>Only people in your workspace are available.</p></div>
+              <IconButton label="Close share dialog" onClick={() => setShareOpen(false)}><X size={18} /></IconButton>
             </div>
-          </GlassCard>
-        </div>
-      )}
-
-      {shareModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <GlassCard className="max-w-lg w-full mx-4">
-            <h3 className="text-xl font-bold mb-4 theme-text">Share Note</h3>
-            <form onSubmit={handleShare}>
-              <div className="mb-4">
-                <label className="block text-sm font-medium mb-2">
-                  Share with:
-                </label>
+            <form onSubmit={sharePage}>
+              <label>
+                People
                 <select
                   multiple
                   value={selectedUsers}
-                  onChange={(e) =>
+                  onChange={(event) =>
                     setSelectedUsers(
-                      Array.from(e.target.selectedOptions, (o) => o.value)
+                      Array.from(event.target.selectedOptions, (option) => option.value)
                     )
                   }
-                  className="w-full border rounded-lg p-3 focus:ring-teal-500"
-                  required
                 >
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} ({u.email})
-                    </option>
+                  {users.map((user) => (
+                    <option key={user.id} value={user.id}>{user.name} ({user.email})</option>
                   ))}
                 </select>
-                <p className="text-xs text-gray-500 mt-1">
-                  Hold Ctrl/Cmd to select multiple
-                </p>
-              </div>
-
-              <div className="mb-6">
-                <label className="block text-sm font-medium mb-2">
-                  Permission:
-                </label>
-                <select
-                  value={permission}
-                  onChange={(e) => setPermission(e.target.value)}
-                  className="w-full border rounded-lg p-3 focus:ring-teal-500"
-                >
+              </label>
+              <label>
+                Access
+                <select value={permission} onChange={(event) => setPermission(event.target.value)}>
                   <option value="view">View only</option>
                   <option value="edit">Can edit</option>
                 </select>
-              </div>
-
-              <div className="flex justify-end gap-3">
-                <GlassButton type="button" variant="secondary" onClick={() => setShareModalOpen(false)}>
-                  Cancel
-                </GlassButton>
-                <GlassButton type="submit">
-                  Share Note
-                </GlassButton>
+              </label>
+              <div className="notes-modal-actions">
+                <button type="button" onClick={() => setShareOpen(false)}>Cancel</button>
+                <button type="submit" className="primary" disabled={selectedUsers.length === 0}>Share page</button>
               </div>
             </form>
-          </GlassCard>
+          </div>
         </div>
-      )}
+      ) : null}
+
+      {deleteTarget ? (
+        <div className="notes-modal-backdrop" role="presentation">
+          <div className="notes-modal notes-confirm-modal" role="alertdialog" aria-modal="true">
+            <h2>Delete this page?</h2>
+            <p>“{deleteTarget.title || "Untitled"}” will be permanently deleted.</p>
+            <div className="notes-modal-actions">
+              <button type="button" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button type="button" className="danger" onClick={() => void deletePage()}>Delete</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </AppLayout>
   );
-};
+}
 
-export default RoughWorkNotepad;
+export default function RoughWorkNotepad() {
+  return (
+    <WorkspaceNotesErrorBoundary>
+      <WorkspaceNotesContent />
+    </WorkspaceNotesErrorBoundary>
+  );
+}

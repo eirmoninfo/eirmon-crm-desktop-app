@@ -36,6 +36,9 @@ export default function Header({
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [notifications, setNotifications] = useState(
+    () => window.__collabflowNotifications || []
+  );
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
@@ -48,6 +51,24 @@ export default function Header({
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    const onNotification = (event) => {
+      const item = event?.detail;
+      if (!item?.id) return;
+      setNotifications((current) =>
+        (
+          window.__collabflowNotifications || [
+            item,
+            ...current.filter((existing) => existing.id !== item.id),
+          ]
+        ).slice(0, 50)
+      );
+    };
+    window.addEventListener("collabflow:notification-added", onNotification);
+    return () =>
+      window.removeEventListener("collabflow:notification-added", onNotification);
   }, []);
 
   useEffect(() => {
@@ -200,7 +221,11 @@ export default function Header({
             aria-label="Notifications"
           >
             <Bell className="h-4.5 w-4.5 text-glass-muted" />
-            <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#ff453a] ring-2 ring-[var(--theme-ring-offset)]" />
+            {notifications.length > 0 ? (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#ff453a] px-1 text-[9px] font-bold leading-none text-white ring-2 ring-[var(--theme-ring-offset)]">
+                {notifications.length > 99 ? "99+" : notifications.length}
+              </span>
+            ) : null}
           </button>
 
           <button
@@ -310,9 +335,43 @@ export default function Header({
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-glass-muted">
-                You&apos;re all caught up. No new notifications.
-              </div>
+              {notifications.length === 0 ? (
+                <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-glass-muted">
+                  You&apos;re all caught up. No new notifications.
+                </div>
+              ) : (
+                <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                  {notifications.map((notification) => (
+                    <button
+                      key={notification.id}
+                      type="button"
+                      onClick={() => {
+                        setNotifications((current) =>
+                          current.filter((item) => {
+                            const keep = item.id !== notification.id;
+                            if (!keep) {
+                              window.__collabflowNotifications = (
+                                window.__collabflowNotifications || []
+                              ).filter((stored) => stored.id !== notification.id);
+                            }
+                            return keep;
+                          })
+                        );
+                        setIsNotificationOpen(false);
+                        if (notification.route) navigate(notification.route);
+                      }}
+                      className="mb-2 w-full rounded-2xl border border-[var(--theme-glass-border)] bg-[var(--theme-hover)] p-3 text-left transition hover:bg-[var(--theme-hover-strong)]"
+                    >
+                      <p className="text-sm font-semibold theme-text">
+                        {notification.title}
+                      </p>
+                      <p className="mt-1 line-clamp-2 text-xs text-glass-muted">
+                        {notification.body}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
             </motion.aside>
           </>
         ) : null}

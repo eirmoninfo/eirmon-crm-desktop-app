@@ -13,6 +13,7 @@ export function clearAuthStorage() {
  * Stop screenshot + idle loops and clear session. Call before navigate("/login").
  */
 export function logoutSession() {
+  window.dispatchEvent(new CustomEvent("collabflow:session-logged-out"));
   try {
     resetTrackerBootstrap();
   } catch (e) {
