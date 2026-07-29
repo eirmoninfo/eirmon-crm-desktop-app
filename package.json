@@ -1,7 +1,7 @@
 {
   "name": "eirmon-crm",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Eirmon CRM desktop application",
   "author": "Eirmon Solutions <support@eirmonsolutions.com>",
   "type": "module",
@@ -107,6 +107,7 @@
       }
     },
     "win": {
+      "icon": "public/icon.ico",
       "target": [
         {
           "target": "nsis",

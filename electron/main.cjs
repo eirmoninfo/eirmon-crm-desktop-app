@@ -29,6 +29,14 @@ function getAutoUpdater() {
 /** Without this, the macOS menu bar shows "Electron" while running `electron .` in dev. */
 app.setName("Eirmon CRM");
 
+/**
+ * Windows uses the AppUserModelID to associate native notifications with the
+ * installed Start Menu shortcut. Keep this identical to electron-builder.appId.
+ */
+if (process.platform === "win32") {
+  app.setAppUserModelId("com.eirmon.crm");
+}
+
 function resolveAppIconPath() {
   const candidates = [
     path.join(__dirname, "..", "public", "logo.png"),
