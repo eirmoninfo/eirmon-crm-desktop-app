@@ -456,13 +456,23 @@ app.whenReady().then(() => {
   registerLiveScreenCaptureHandler();
 
   session.defaultSession.setPermissionRequestHandler(
-    (_webContents, permission, callback) => {
-      callback(permission === "geolocation");
+    (requestingWebContents, permission, callback) => {
+      const trusted =
+        requestingWebContents === mainWindow?.webContents ||
+        requestingWebContents.getURL().startsWith("file://") ||
+        requestingWebContents.getURL().startsWith("http://localhost:5173");
+      callback(trusted && ["geolocation", "media", "display-capture"].includes(permission));
     }
   );
 
   session.defaultSession.setPermissionCheckHandler(
-    (_webContents, permission) => permission === "geolocation"
+    (requestingWebContents, permission) => {
+      const trusted =
+        requestingWebContents === mainWindow?.webContents ||
+        requestingWebContents.getURL().startsWith("file://") ||
+        requestingWebContents.getURL().startsWith("http://localhost:5173");
+      return trusted && ["geolocation", "media", "display-capture"].includes(permission);
+    }
   );
 
   const appIcon = resolveAppIconNative();

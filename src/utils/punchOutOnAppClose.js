@@ -141,6 +141,7 @@ export function startPunchOutOnAppClose() {
   if (!window.api?.onAppCloseRequest) return;
 
   const off = window.api.onAppCloseRequest((payload) => {
+    window.dispatchEvent(new CustomEvent("collabflow:meeting-app-close"));
     void handleAppCloseRequest(payload);
   });
 

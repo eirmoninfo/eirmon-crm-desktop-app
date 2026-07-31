@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion as Motion, AnimatePresence } from "framer-motion";
 import {
   Bell,
   Search,
@@ -39,7 +39,9 @@ export default function Header({
   const [notifications, setNotifications] = useState(
     () => window.__collabflowNotifications || []
   );
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(
+    () => sessionStorage.getItem("collabflow:workspace-search") || ""
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -135,9 +137,19 @@ export default function Header({
       if (e.key === "Escape") {
         e.currentTarget.blur();
         setSearchQuery("");
+        sessionStorage.removeItem("collabflow:workspace-search");
+        window.dispatchEvent(
+          new CustomEvent("collabflow:workspace-search", {
+            detail: { query: "" },
+          })
+        );
+      }
+      if (e.key === "Enter" && searchQuery.trim()) {
+        sessionStorage.setItem("collabflow:workspace-search", searchQuery);
+        navigate("/rough-work");
       }
     },
-    []
+    [navigate, searchQuery]
   );
 
   useEffect(() => {
@@ -195,7 +207,16 @@ export default function Header({
             id="global-search"
             type="search"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              const query = e.target.value;
+              setSearchQuery(query);
+              sessionStorage.setItem("collabflow:workspace-search", query);
+              window.dispatchEvent(
+                new CustomEvent("collabflow:workspace-search", {
+                  detail: { query },
+                })
+              );
+            }}
             onKeyDown={handleSearchKeyDown}
             placeholder="Search workspace…"
             className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-glass-subtle"
@@ -253,7 +274,7 @@ export default function Header({
         <AnimatePresence>
           {isProfileOpen ? (
             <>
-              <motion.button
+              <Motion.button
                 type="button"
                 className="fixed inset-0 z-40"
                 initial={{ opacity: 0 }}
@@ -262,7 +283,7 @@ export default function Header({
                 onClick={() => setIsProfileOpen(false)}
                 aria-label="Close profile menu"
               />
-              <motion.div
+              <Motion.div
                 className="glass-modal absolute right-0 top-full z-50 mt-2 w-72 !max-w-none overflow-hidden !rounded-3xl"
                 initial={{ opacity: 0, y: -8, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -293,7 +314,7 @@ export default function Header({
                     Log out
                   </button>
                 </div>
-              </motion.div>
+              </Motion.div>
             </>
           ) : null}
         </AnimatePresence>
@@ -302,7 +323,7 @@ export default function Header({
       <AnimatePresence>
         {isNotificationOpen ? (
           <>
-            <motion.div
+            <Motion.div
               className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -310,7 +331,7 @@ export default function Header({
               onClick={() => setIsNotificationOpen(false)}
               aria-hidden
             />
-            <motion.aside
+            <Motion.aside
               className="glass-modal fixed right-0 top-0 z-50 flex h-full w-full max-w-sm flex-col !rounded-none !rounded-l-[32px]"
               initial={{ x: "100%" }}
               animate={{ x: 0 }}
@@ -372,7 +393,7 @@ export default function Header({
                   ))}
                 </div>
               )}
-            </motion.aside>
+            </Motion.aside>
           </>
         ) : null}
       </AnimatePresence>

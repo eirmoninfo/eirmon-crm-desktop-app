@@ -56,15 +56,17 @@ test("read-only state blocks both title and content edits", () => {
   assert.equal(canEditNote(viewer), false);
 });
 
-test("autosave debounce keeps only the latest edit for a page", async () => {
+test("autosave debounce merges title and content edits for a page", async () => {
   const calls = [];
   const queue = createDebouncedSaveQueue(
     (noteId, patch) => calls.push([noteId, patch]),
     5
   );
-  queue.schedule(1, { content: "first" });
+  queue.schedule(1, { title: "Updated title" });
   queue.schedule(1, { content: "latest" });
   await new Promise((resolve) => setTimeout(resolve, 15));
-  assert.deepEqual(calls, [[1, { content: "latest" }]]);
+  assert.deepEqual(calls, [
+    [1, { title: "Updated title", content: "latest" }],
+  ]);
   queue.cancelAll();
 });

@@ -1,5 +1,5 @@
-import { getToken } from "../utils/storage";
-import { API_BASE_URL } from "./api.config";
+import { getToken } from "../utils/storage.js";
+import { API_BASE_URL } from "./api.config.js";
 
 
 
@@ -73,4 +73,3 @@ export async function apiRequest(endpoint, options = {}) {
 
   return json;
 }
-

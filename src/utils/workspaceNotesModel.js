@@ -120,21 +120,26 @@ export function mergeSharedNote(note, shareResponse) {
 
 export function createDebouncedSaveQueue(save, delay = 800) {
   const timers = new Map();
+  const patches = new Map();
   return {
     schedule(noteId, patch) {
       const current = timers.get(noteId);
       if (current) clearTimeout(current);
+      patches.set(noteId, { ...(patches.get(noteId) || {}), ...patch });
       timers.set(
         noteId,
         setTimeout(() => {
           timers.delete(noteId);
-          void save(noteId, patch);
+          const pending = patches.get(noteId);
+          patches.delete(noteId);
+          void save(noteId, pending);
         }, delay)
       );
     },
     cancelAll() {
       for (const timer of timers.values()) clearTimeout(timer);
       timers.clear();
+      patches.clear();
     },
   };
 }

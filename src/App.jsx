@@ -17,6 +17,9 @@ import TaskCreate from "./pages/TaskCreate";
 import LeaveRequests from "./pages/LeaveRequests";
 import TeamChat from "./pages/TeamChat";
 import EirmonAi from "./pages/EirmonAi";
+import MeetingsPage from "./features/meetings/pages/MeetingsPage";
+import CreateMeetingPage from "./features/meetings/pages/CreateMeetingPage";
+import MeetingRoomPage from "./features/meetings/pages/MeetingRoomPage";
 import Unauthorized from "./pages/Unauthorized";
 import AppUpdateOverlay from "./components/AppUpdateOverlay";
 import EirmonAiWidget from "./components/EirmonAi/EirmonAiWidget";
@@ -539,6 +542,9 @@ function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="/meetings" element={<ProtectedRoute><PermissionRoute anyOf={[]}><MeetingsPage /></PermissionRoute></ProtectedRoute>} />
+      <Route path="/meetings/create" element={<ProtectedRoute><PermissionRoute anyOf={[]}><CreateMeetingPage /></PermissionRoute></ProtectedRoute>} />
+      <Route path="/meetings/:uuid" element={<ProtectedRoute><PermissionRoute anyOf={[]}><MeetingRoomPage /></PermissionRoute></ProtectedRoute>} />
     </Routes>
     </>
   );

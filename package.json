@@ -14,6 +14,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "test": "node --test",
     "preview": "vite preview",
     "electron:dev": "env -u ELECTRON_RUN_AS_NODE concurrently -k \"vite\" \"wait-on http://localhost:5173 && env -u ELECTRON_RUN_AS_NODE electron .\"",
     "dev:electron": "env -u ELECTRON_RUN_AS_NODE concurrently \"vite\" \"wait-on http://localhost:5173 && env -u ELECTRON_RUN_AS_NODE electron .\"",
@@ -40,6 +41,7 @@
     "framer-motion": "^12.42.2",
     "jspdf": "^4.0.0",
     "laravel-echo": "^2.3.0",
+    "livekit-client": "^2.21.0",
     "lucide-react": "^1.23.0",
     "node-fetch": "^3.3.2",
     "pusher-js": "^8.4.0",
@@ -108,7 +110,9 @@
         }
       ],
       "extendInfo": {
-        "NSLocationWhenInUseUsageDescription": "Eirmon CRM uses your location to show local weather in the header."
+        "NSLocationWhenInUseUsageDescription": "Eirmon CRM uses your location to show local weather in the header.",
+        "NSCameraUsageDescription": "Eirmon One uses your camera for video meetings.",
+        "NSMicrophoneUsageDescription": "Eirmon One uses your microphone for video meetings."
       }
     },
     "win": {

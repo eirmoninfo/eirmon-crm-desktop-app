@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion as Motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
   BookOpen,
@@ -8,6 +8,7 @@ import {
   ListTodo,
   CalendarDays,
   MessageSquare,
+  Video,
   Wallet,
   BarChart3,
   Tag,
@@ -50,6 +51,7 @@ const ICONS = {
   tasks: ListTodo,
   leave: CalendarDays,
   chat: MessageSquare,
+  meetings: Video,
   ai: null,
   expenses: Wallet,
   budgets: BarChart3,
@@ -158,6 +160,12 @@ export default function Sidebar({
         anyOf: [P.VIEW_TEAM_CHAT, P.MANAGE_TEAM_CHAT],
       },
       {
+        name: "Meetings",
+        iconKey: "meetings",
+        href: "/meetings",
+        anyOf: [],
+      },
+      {
         name: "AI Assistant",
         iconKey: "ai",
         href: "/eirmon-ai",
@@ -247,7 +255,7 @@ export default function Sidebar({
           <EirmonLogo size={36} className="shrink-0" />
           <AnimatePresence>
             {showExpanded ? (
-              <motion.div
+              <Motion.div
                 initial={{ opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -8 }}
@@ -259,7 +267,7 @@ export default function Sidebar({
                 <p className="text-[10px] font-medium uppercase tracking-widest text-glass-subtle">
                   Workspace
                 </p>
-              </motion.div>
+              </Motion.div>
             ) : null}
           </AnimatePresence>
         </div>
@@ -322,7 +330,7 @@ export default function Sidebar({
 
                 <AnimatePresence>
                   {isOpen && showExpanded ? (
-                    <motion.div
+                    <Motion.div
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: "auto", opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
@@ -349,7 +357,7 @@ export default function Sidebar({
                           </Link>
                         );
                       })}
-                    </motion.div>
+                    </Motion.div>
                   ) : null}
                 </AnimatePresence>
               </div>

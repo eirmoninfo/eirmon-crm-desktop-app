@@ -62,6 +62,39 @@ const AI_MODES = [
   ["Expand", "Expand this page with useful detail while preserving its intent."],
 ];
 
+const FAVORITES_KEY = "collabflow:workspace-note-favorites";
+
+function sanitizeHtml(html) {
+  const template = document.createElement("template");
+  template.innerHTML = String(html || "");
+  template.content
+    .querySelectorAll("script,style,iframe,object,embed,meta,link")
+    .forEach((element) => element.remove());
+  template.content.querySelectorAll("*").forEach((element) => {
+    for (const attribute of [...element.attributes]) {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value.trim().toLowerCase();
+      if (
+        name.startsWith("on") ||
+        (["href", "src", "xlink:href"].includes(name) &&
+          value.startsWith("javascript:"))
+      ) {
+        element.removeAttribute(attribute.name);
+      }
+    }
+  });
+  return template.innerHTML;
+}
+
+function readFavorites() {
+  try {
+    const ids = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]");
+    return new Set(Array.isArray(ids) ? ids.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
 function initials(name) {
   return String(name || "?")
     .trim()
@@ -152,10 +185,17 @@ function WorkspaceNotesContent() {
   const [aiRunning, setAiRunning] = useState("");
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [permission, setPermission] = useState("view");
-  const [favorites, setFavorites] = useState(() => new Set());
+  const [favorites, setFavorites] = useState(readFavorites);
+  const [insertOpen, setInsertOpen] = useState(false);
+  const [workspaceSearch, setWorkspaceSearch] = useState(
+    () => sessionStorage.getItem("collabflow:workspace-search") || ""
+  );
   const listRef = useRef(null);
+  const editorRef = useRef(null);
   const sortableRef = useRef(null);
   const saveTimersRef = useRef(new Map());
+  const pendingPatchesRef = useRef(new Map());
+  const previousNoteIdRef = useRef(null);
 
   const activeNote = useMemo(
     () => notes.find((note) => String(note.id) === String(activeNoteId)) ?? null,
@@ -167,21 +207,32 @@ function WorkspaceNotesContent() {
     [activeNote]
   );
 
+  useEffect(() => {
+    if (!editorRef.current) return;
+    editorRef.current.innerHTML = activeNote?.content || "";
+    // Content typed by the user is managed by the contentEditable element.
+    // Replacing it on each state update moves the caret back to the beginning.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeNoteId]);
+
   const visibleNotes = useMemo(() => {
-    if (section === "meetings") {
-      return notes.filter((note) =>
-        `${note.title || ""} ${note.template || ""}`.toLowerCase().includes("meeting")
-      );
-    }
-    if (section === "recents") {
-      return [...notes].sort(
-        (a, b) =>
-          new Date(b.updated_at || b.created_at || 0) -
-          new Date(a.updated_at || a.created_at || 0)
-      );
-    }
-    return notes;
-  }, [notes, section]);
+    const sectionNotes = section === "pages" ? notes : section === "meetings"
+      ? notes.filter((note) =>
+          `${note.title || ""} ${note.template || ""}`.toLowerCase().includes("meeting")
+        )
+      : [...notes].sort(
+          (a, b) =>
+            new Date(b.updated_at || b.created_at || 0) -
+            new Date(a.updated_at || a.created_at || 0)
+        );
+    const query = workspaceSearch.trim().toLowerCase();
+    if (!query) return sectionNotes;
+    return sectionNotes.filter((note) =>
+      `${note.title || ""} ${htmlToText(note.content || "")}`
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [notes, section, workspaceSearch]);
 
   const loadWorkspace = useCallback(async ({ preserveSelection = true } = {}) => {
     setLoading(true);
@@ -192,16 +243,28 @@ function WorkspaceNotesContent() {
         apiRequest("/users/company"),
       ]);
       const loaded = notesResponse?.notes ?? notesResponse?.data?.notes ?? [];
-      setNotes(Array.isArray(loaded) ? loaded : []);
-      setUsers(usersResponse?.data ?? usersResponse?.users ?? []);
+      const safeNotes = Array.isArray(loaded)
+        ? loaded.map((note) => ({
+            ...note,
+            content: sanitizeHtml(note.content),
+          }))
+        : [];
+      const usersPayload = usersResponse?.data ?? usersResponse?.users ?? [];
+      const loadedUsers = Array.isArray(usersPayload?.data)
+        ? usersPayload.data
+        : Array.isArray(usersPayload)
+          ? usersPayload
+          : [];
+      setNotes(safeNotes);
+      setUsers(loadedUsers);
       setActiveNoteId((current) => {
         if (
           preserveSelection &&
-          loaded.some((note) => String(note.id) === String(current))
+          safeNotes.some((note) => String(note.id) === String(current))
         ) {
           return current;
         }
-        return loaded[0]?.id ?? null;
+        return safeNotes[0]?.id ?? null;
       });
     } catch (error) {
       setLoadError(error?.message || "Workspace Notes could not be loaded.");
@@ -210,31 +273,65 @@ function WorkspaceNotesContent() {
     }
   }, []);
 
-  useEffect(() => {
-    const timers = saveTimersRef.current;
-    queueMicrotask(() => void loadWorkspace({ preserveSelection: false }));
-    return () => {
-      for (const timer of timers.values()) clearTimeout(timer);
-    };
-  }, [loadWorkspace]);
+  const persistNote = useCallback(async (noteId, patch) => {
+    setSaveState((current) => ({ ...current, [noteId]: "saving" }));
+    try {
+      await apiRequest(`/rough-work/${noteId}`, {
+        method: "PUT",
+        body: patch,
+      });
+      setSaveState((current) => ({ ...current, [noteId]: "saved" }));
+    } catch {
+      setSaveState((current) => ({ ...current, [noteId]: "failed" }));
+    }
+  }, []);
 
   useEffect(() => {
-    if (!listRef.current || section !== "pages") return undefined;
+    const timers = saveTimersRef.current;
+    const pending = pendingPatchesRef.current;
+    queueMicrotask(() => void loadWorkspace({ preserveSelection: false }));
+    const handleWorkspaceSearch = (event) =>
+      setWorkspaceSearch(String(event.detail?.query || ""));
+    const flushPending = () => {
+      for (const [noteId, patch] of pending) {
+        void persistNote(noteId, patch);
+      }
+      pending.clear();
+    };
+    window.addEventListener("collabflow:workspace-search", handleWorkspaceSearch);
+    window.addEventListener("pagehide", flushPending);
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      flushPending();
+      window.removeEventListener("collabflow:workspace-search", handleWorkspaceSearch);
+      window.removeEventListener("pagehide", flushPending);
+    };
+  }, [loadWorkspace, persistNote]);
+
+  useEffect(() => {
+    localStorage.setItem(FAVORITES_KEY, JSON.stringify([...favorites]));
+  }, [favorites]);
+
+  useEffect(() => {
+    if (!listRef.current || section !== "pages" || workspaceSearch) return undefined;
     const sortable = new Sortable(listRef.current, {
       animation: 150,
       handle: ".notes-drag-handle",
       filter: ".notes-shared-page",
       onEnd: async ({ oldIndex, newIndex }) => {
         if (oldIndex === newIndex || oldIndex == null || newIndex == null) return;
-        const owned = notes.filter((note) => note.is_owner);
-        const [moved] = owned.splice(oldIndex, 1);
-        owned.splice(newIndex, 0, moved);
-        const shared = notes.filter((note) => !note.is_owner);
-        setNotes([...owned, ...shared]);
+        const orderedIds = [...listRef.current.querySelectorAll("[data-note-id]")]
+          .map((element) => String(element.dataset.noteId));
+        const byId = new Map(notes.map((note) => [String(note.id), note]));
+        const ordered = orderedIds.map((id) => byId.get(id)).filter(Boolean);
+        const ownedIds = ordered
+          .filter((note) => note.is_owner)
+          .map((note) => note.id);
+        setNotes(ordered);
         try {
           await apiRequest("/rough-work/reorder", {
             method: "POST",
-            body: { order: owned.map((note) => note.id) },
+            body: { order: ownedIds },
           });
         } catch {
           toast.error("Page order could not be saved.");
@@ -251,45 +348,67 @@ function WorkspaceNotesContent() {
         // React Strict Mode may run effect cleanup twice in development.
       }
     };
-  }, [notes, section, loadWorkspace]);
-
-  const persistNote = useCallback(async (noteId, patch) => {
-    setSaveState((current) => ({ ...current, [noteId]: "saving" }));
-    try {
-      await apiRequest(`/rough-work/${noteId}`, {
-        method: "PUT",
-        body: patch,
-      });
-      setSaveState((current) => ({ ...current, [noteId]: "saved" }));
-    } catch {
-      setSaveState((current) => ({ ...current, [noteId]: "failed" }));
-    }
-  }, []);
+  }, [notes, section, workspaceSearch, loadWorkspace]);
 
   const scheduleSave = useCallback(
     (noteId, patch) => {
       const existing = saveTimersRef.current.get(noteId);
       if (existing) clearTimeout(existing);
+      pendingPatchesRef.current.set(noteId, {
+        ...(pendingPatchesRef.current.get(noteId) || {}),
+        ...patch,
+      });
       setSaveState((current) => ({ ...current, [noteId]: "pending" }));
       const timer = setTimeout(() => {
         saveTimersRef.current.delete(noteId);
-        void persistNote(noteId, patch);
+        const pending = pendingPatchesRef.current.get(noteId);
+        pendingPatchesRef.current.delete(noteId);
+        if (pending) void persistNote(noteId, pending);
       }, 800);
       saveTimersRef.current.set(noteId, timer);
     },
     [persistNote]
   );
 
+  const flushNoteSave = useCallback(
+    (noteId) => {
+      if (noteId == null) return;
+      const timer = saveTimersRef.current.get(noteId);
+      if (timer) clearTimeout(timer);
+      saveTimersRef.current.delete(noteId);
+      const pending = pendingPatchesRef.current.get(noteId);
+      pendingPatchesRef.current.delete(noteId);
+      if (pending) void persistNote(noteId, pending);
+    },
+    [persistNote]
+  );
+
+  useEffect(() => {
+    const previous = previousNoteIdRef.current;
+    if (previous != null && String(previous) !== String(activeNoteId)) {
+      flushNoteSave(previous);
+    }
+    previousNoteIdRef.current = activeNoteId;
+  }, [activeNoteId, flushNoteSave]);
+
   const changeContent = (event) => {
     if (!activeNote || !editable) return;
-    const content = event.currentTarget.innerHTML;
-    setNotes((current) => updateNote(current, activeNote.id, { content }));
+    const content = sanitizeHtml(event.currentTarget.innerHTML);
+    const updated_at = new Date().toISOString();
+    setNotes((current) =>
+      updateNote(current, activeNote.id, { content, updated_at })
+    );
     scheduleSave(activeNote.id, { content });
   };
 
   const changeTitle = (title) => {
     if (!activeNote || !editable) return;
-    setNotes((current) => updateNote(current, activeNote.id, { title }));
+    setNotes((current) =>
+      updateNote(current, activeNote.id, {
+        title,
+        updated_at: new Date().toISOString(),
+      })
+    );
     scheduleSave(activeNote.id, { title });
   };
 
@@ -364,10 +483,21 @@ function WorkspaceNotesContent() {
 
   const exportPdf = () => {
     const pdf = new jsPDF();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const bottomMargin = 16;
     pdf.setFontSize(18);
     pdf.text(activeNote?.title || "Untitled", 14, 18);
     pdf.setFontSize(11);
-    pdf.text(htmlToText(activeNote?.content), 14, 30, { maxWidth: 180 });
+    const lines = pdf.splitTextToSize(htmlToText(activeNote?.content), 180);
+    let y = 30;
+    for (const line of lines) {
+      if (y > pageHeight - bottomMargin) {
+        pdf.addPage();
+        y = 18;
+      }
+      pdf.text(line, 14, y);
+      y += 6;
+    }
     pdf.save(`${activeNote?.title || "page"}.pdf`);
   };
 
@@ -382,8 +512,9 @@ function WorkspaceNotesContent() {
         context: { pathname: "/rough-work" },
       });
       if (!result?.text) throw new Error("AI returned no text.");
-      const content = textToHtml(result.text);
+      const content = sanitizeHtml(textToHtml(result.text));
       setNotes((current) => updateNote(current, activeNote.id, { content }));
+      if (editorRef.current) editorRef.current.innerHTML = content;
       scheduleSave(activeNote.id, { content });
     } catch (error) {
       toast.error(error?.message || "AI could not update this page.");
@@ -517,23 +648,25 @@ function WorkspaceNotesContent() {
                   <input
                     value={activeNote.title || ""}
                     onChange={(event) => changeTitle(event.target.value)}
+                    onBlur={() => flushNoteSave(activeNote.id)}
                     readOnly={!editable}
                     aria-label="Page title"
                     placeholder="Untitled"
                   />
                   <IconButton
-                    label={favorites.has(activeNote.id) ? "Remove favorite" : "Add favorite"}
+                    label={favorites.has(String(activeNote.id)) ? "Remove favorite" : "Add favorite"}
                     onClick={() =>
                       setFavorites((current) => {
                         const next = new Set(current);
-                        if (next.has(activeNote.id)) next.delete(activeNote.id);
-                        else next.add(activeNote.id);
+                        const id = String(activeNote.id);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
                         return next;
                       })
                     }
-                    active={favorites.has(activeNote.id)}
+                    active={favorites.has(String(activeNote.id))}
                   >
-                    <Star size={16} fill={favorites.has(activeNote.id) ? "currentColor" : "none"} />
+                    <Star size={16} fill={favorites.has(String(activeNote.id)) ? "currentColor" : "none"} />
                   </IconButton>
                   <span className="notes-access-label">{accessLabel(activeNote)}</span>
                 </div>
@@ -602,9 +735,24 @@ function WorkspaceNotesContent() {
               </header>
 
               <div className="notes-toolbar" role="toolbar" aria-label="Formatting toolbar">
-                <button type="button" disabled={!editable} onClick={() => format("insertParagraph")}>
-                  <Plus size={15} /> Insert
-                </button>
+                <div className="notes-insert-wrap">
+                  <button type="button" disabled={!editable} onClick={() => setInsertOpen((open) => !open)}>
+                    <Plus size={15} /> Insert
+                  </button>
+                  {insertOpen ? (
+                    <div className="notes-popover notes-insert-menu">
+                      <button type="button" onClick={() => { format("insertParagraph"); setInsertOpen(false); }}>Paragraph</button>
+                      <button type="button" onClick={() => { format("formatBlock", "h2"); setInsertOpen(false); }}>Heading</button>
+                      <button type="button" onClick={() => { format("insertUnorderedList"); setInsertOpen(false); }}>Bulleted list</button>
+                      <button type="button" onClick={() => { format("insertOrderedList"); setInsertOpen(false); }}>Numbered list</button>
+                      <button type="button" onClick={() => {
+                        const url = window.prompt("Enter a URL");
+                        if (url) format("createLink", url);
+                        setInsertOpen(false);
+                      }}>Link</button>
+                    </div>
+                  ) : null}
+                </div>
                 <span className="notes-toolbar-divider" />
                 <IconButton label="Undo" disabled={!editable} onClick={() => format("undo")}><Undo2 size={16} /></IconButton>
                 <IconButton label="Redo" disabled={!editable} onClick={() => format("redo")}><Redo2 size={16} /></IconButton>
@@ -637,13 +785,27 @@ function WorkspaceNotesContent() {
                 <div className="notes-editor-canvas">
                   <div
                     key={activeNote.id}
+                    ref={editorRef}
                     id={`workspace-note-${activeNote.id}`}
                     className={`notes-rich-editor ${editable ? "" : "read-only"}`}
                     contentEditable={editable}
                     suppressContentEditableWarning
                     data-placeholder="Start typing or type / for menu"
                     onInput={changeContent}
-                    dangerouslySetInnerHTML={{ __html: activeNote.content || "" }}
+                    onBlur={() => flushNoteSave(activeNote.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "/" && !event.metaKey && !event.ctrlKey) {
+                        setInsertOpen(true);
+                      }
+                    }}
+                    onPaste={(event) => {
+                      event.preventDefault();
+                      document.execCommand(
+                        "insertText",
+                        false,
+                        event.clipboardData.getData("text/plain")
+                      );
+                    }}
                     aria-label="Page content"
                   />
                 </div>

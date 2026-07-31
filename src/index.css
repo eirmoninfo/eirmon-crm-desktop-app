@@ -185,12 +185,13 @@
   min-height: 45px;
   align-items: center;
   gap: 2px;
-  overflow-x: auto;
+  overflow: visible;
   border-bottom: 1px solid var(--notes-border);
   background: #f9fafb;
   padding: 6px 14px;
 }
-.notes-toolbar > button:not(.notes-icon-button) {
+.notes-toolbar > button:not(.notes-icon-button),
+.notes-insert-wrap > button {
   display: inline-flex;
   height: 30px;
   flex: none;
@@ -202,6 +203,8 @@
   font-size: 11px;
   font-weight: 600;
 }
+.notes-insert-wrap { position: relative; flex: none; }
+.notes-insert-menu { top: 34px; left: 0; }
 .notes-toolbar button:hover:not(:disabled) { background: #eef2ff; color: #4338ca; }
 .notes-toolbar-divider { width: 1px; height: 20px; flex: none; margin: 0 4px; background: #e5e7eb; }
 .notes-editor-scroll { min-height: 0; flex: 1; overflow: auto; background: #fff; }
