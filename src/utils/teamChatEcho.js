@@ -30,6 +30,15 @@ const TYPING_EVENTS = [
   "typing",
 ];
 
+const REACTION_EVENTS = [
+  ".MessageReactionUpdated",
+  "MessageReactionUpdated",
+  ".message.reaction.updated",
+  "message.reaction.updated",
+  ".reaction.updated",
+  "reaction.updated",
+];
+
 function bindEvents(channel, handlers) {
   const bindings = [];
   if (handlers.onMessage) {
@@ -48,6 +57,13 @@ function bindEvents(channel, handlers) {
         console.log(`[TeamChat] Typing event:${ev}`, e);
         handlers.onTyping(e);
       };
+      channel.listen(ev, callback);
+      bindings.push([ev, callback]);
+    }
+  }
+  if (handlers.onReaction) {
+    for (const ev of REACTION_EVENTS) {
+      const callback = (payload) => handlers.onReaction(payload);
       channel.listen(ev, callback);
       bindings.push([ev, callback]);
     }

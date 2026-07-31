@@ -6,7 +6,9 @@ import {
   FaReply,
   FaSpinner,
   FaUser,
+  FaSmile,
 } from "react-icons/fa";
+import EmojiPickerPopover from "./EmojiPickerPopover";
 import { fetchTeamChatMessageFile } from "../../api/teamChat.api";
 import {
   channelLabel,
@@ -15,6 +17,11 @@ import {
   isDirectChannel,
   messagePreview,
 } from "../../utils/teamChatHelpers";
+import {
+  isEmojiOnlyMessage,
+  normalizeReactions,
+  QUICK_REACTIONS,
+} from "../../utils/teamChatReactions";
 
 const AVATAR_COLORS = [
   "from-blue-500 to-blue-700",
@@ -269,7 +276,16 @@ function MessageAttachments({ msg, mine }) {
   );
 }
 
-export function MessageBubble({ msg, mine, showAuthor, onReply }) {
+export function MessageBubble({
+  msg,
+  mine,
+  showAuthor,
+  onReply,
+  onReact,
+  currentUserId,
+}) {
+  const [reactionMenuOpen, setReactionMenuOpen] = useState(false);
+  const [allReactionsOpen, setAllReactionsOpen] = useState(false);
   const author = msg?.user?.name ?? msg?.author_name ?? "User";
   const time = msg.created_at;
   const text = msg._displayBody ?? msg.body ?? "";
@@ -290,6 +306,7 @@ export function MessageBubble({ msg, mine, showAuthor, onReply }) {
     repliedMessage?.user_name ??
     "Message";
   const repliedText = messagePreview(repliedMessage);
+  const reactions = normalizeReactions(msg);
 
   return (
     <div className={`group flex gap-2 ${mine ? "flex-row-reverse" : ""}`}>
@@ -312,7 +329,13 @@ export function MessageBubble({ msg, mine, showAuthor, onReply }) {
             </div>
           ) : null}
           {text ? (
-            <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">
+            <p
+              className={`whitespace-pre-wrap break-words leading-relaxed ${
+                isEmojiOnlyMessage(text) && !attachments.length
+                  ? "text-4xl tracking-wide"
+                  : "text-[15px]"
+              }`}
+            >
               {text}
             </p>
           ) : null}
@@ -329,6 +352,29 @@ export function MessageBubble({ msg, mine, showAuthor, onReply }) {
             </p>
           ) : null}
         </div>
+        {reactions.length ? (
+          <div className={`mt-1 flex flex-wrap gap-1 ${mine ? "justify-end" : ""}`}>
+            {reactions.map((reaction) => {
+              const reacted = reaction.users.some(
+                (user) => String(user.id) === String(currentUserId)
+              );
+              const names = reaction.users.map((user) => user.name || "User").join(", ");
+              return (
+                <button
+                  key={reaction.emoji}
+                  type="button"
+                  onClick={() => onReact?.(reaction.emoji)}
+                  className={`team-chat-reaction-pill ${reacted ? "is-mine" : ""}`}
+                  title={names || `${reaction.count} reaction${reaction.count === 1 ? "" : "s"}`}
+                  aria-label={`${reaction.emoji}, ${reaction.count} reaction${reaction.count === 1 ? "" : "s"}${reacted ? ", selected by you" : ""}`}
+                >
+                  <span>{reaction.emoji}</span>
+                  <span>{reaction.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
         <p
           className={`mt-1 px-1 text-[10px] tabular-nums ${
             mine ? "text-right text-glass-muted" : "text-glass-muted"
@@ -352,6 +398,61 @@ export function MessageBubble({ msg, mine, showAuthor, onReply }) {
         >
           <FaReply className="text-xs" />
         </button>
+      ) : null}
+      {onReact ? (
+        <div className="relative mt-7">
+          <button
+            type="button"
+            onClick={() => setReactionMenuOpen((open) => !open)}
+            className="flex h-7 w-7 items-center justify-center rounded-full text-glass-muted opacity-0 transition hover:bg-white/10 hover:text-eirmon-500 focus:opacity-100 group-hover:opacity-100"
+            title="React"
+            aria-label="React to message"
+            aria-expanded={reactionMenuOpen}
+          >
+            <FaSmile className="text-xs" />
+          </button>
+          {reactionMenuOpen ? (
+            <div className={`team-chat-quick-reactions ${mine ? "right-0" : "left-0"}`}>
+              {QUICK_REACTIONS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => {
+                    onReact(emoji);
+                    setReactionMenuOpen(false);
+                  }}
+                  title={`React with ${emoji}`}
+                  aria-label={`React with ${emoji}`}
+                >
+                  {emoji}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setReactionMenuOpen(false);
+                  setAllReactionsOpen(true);
+                }}
+                className="more"
+                aria-label="More reactions"
+                title="More reactions"
+              >
+                +
+              </button>
+            </div>
+          ) : null}
+          <EmojiPickerPopover
+            open={allReactionsOpen}
+            onClose={() => setAllReactionsOpen(false)}
+            onSelect={(emoji) => {
+              onReact(emoji);
+              setAllReactionsOpen(false);
+            }}
+            userId={currentUserId}
+            title="React to message"
+            className={`team-chat-reaction-picker ${mine ? "right-0" : "left-0"}`}
+          />
+        </div>
       ) : null}
     </div>
   );

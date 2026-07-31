@@ -111,6 +111,14 @@ export function markTeamChatChannelRead(channelId) {
   });
 }
 
+/** POST /team-chat/messages/{id}/reactions — server toggles this user's emoji. */
+export function toggleTeamChatMessageReaction(messageId, emoji) {
+  return apiRequest(`${PREFIX}/messages/${messageId}/reactions`, {
+    method: "POST",
+    body: JSON.stringify({ emoji }),
+  });
+}
+
 /** GET /team-chat/search?q=... */
 export function searchTeamChat(q) {
   return apiRequest(`${PREFIX}/search${buildQuery({ q })}`);

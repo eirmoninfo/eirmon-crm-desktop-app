@@ -18,8 +18,10 @@ import {
   sendTeamChatMessage,
   startTeamChatDirect,
   teamChatBootstrap,
+  toggleTeamChatMessageReaction,
 } from "../api/teamChat.api";
 import CreateChannelModal from "../components/TeamChat/CreateChannelModal";
+import EmojiPickerPopover from "../components/TeamChat/EmojiPickerPopover";
 import {
   ChannelListItem,
   ChatEmptyState,
@@ -51,6 +53,7 @@ import {
   parseChannel,
   parseMessages,
 } from "../utils/teamChatHelpers";
+import { toggleReactionLocally } from "../utils/teamChatReactions";
 
 function normalizeIncomingTeamChatPayload(payload) {
   const direct = extractChatMessage(payload);
@@ -82,18 +85,6 @@ function normalizeIncomingTeamChatPayload(payload) {
 import { unwrapApiBody } from "../utils/unwrapApiBody";
 
 const POLL_MS = 4000;
-const CHAT_EMOJIS = [
-  "😀", "😃", "😄", "😁", "😆", "😂", "🤣", "😊",
-  "🙂", "😉", "😍", "🥰", "😘", "😎", "🤩", "🥳",
-  "🤔", "🫡", "🤗", "🤭", "😅", "😴", "😭", "😢",
-  "😡", "😱", "😇", "🤯", "👍", "👎", "👏", "🙌",
-  "🙏", "💪", "🤝", "👌", "✌️", "🤞", "👋", "🫶",
-  "❤️", "💙", "💚", "💛", "💜", "🖤", "💯", "🔥",
-  "✨", "⭐", "🎉", "🎊", "✅", "❌", "⚠️", "💡",
-  "🚀", "🏆", "🎯", "💻", "📱", "📌", "📎", "📝",
-  "☕", "🍕", "🍔", "🍰", "🎂", "🌞", "🌙", "🌈",
-];
-
 function patchChannelLastMessage(channels, channelId, msg) {
   const index = channels.findIndex((c) => Number(c.id) === Number(channelId));
   if (index < 0) return channels;
@@ -157,6 +148,8 @@ export default function TeamChat() {
   const messagesRef = useRef([]);
   const backgroundMessageIdsRef = useRef(new Set());
   const fileInputRef = useRef(null);
+  const composerRef = useRef(null);
+  const selectionRef = useRef({ start: 0, end: 0 });
   const typingClearRef = useRef(null);
   const myId = getStoredUserId();
 
@@ -347,6 +340,18 @@ export default function TeamChat() {
         if (typingClearRef.current) clearTimeout(typingClearRef.current);
         typingClearRef.current = setTimeout(() => setTypingUsers([]), 3000);
       },
+      onReaction: (payload) => {
+        const updated =
+          payload?.message ?? payload?.data?.message ?? payload?.data ?? payload;
+        if (!updated?.id) return;
+        setMessages((current) =>
+          current.map((message) =>
+            String(message.id) === String(updated.id)
+              ? normalizeMessage({ ...message, ...updated })
+              : message
+          )
+        );
+      },
     });
 
     setLiveConnected(subscribed && isEchoConnected());
@@ -382,10 +387,41 @@ export default function TeamChat() {
   };
 
   const insertEmoji = (emoji) => {
-    setComposer((current) => `${current}${emoji}`);
+    const input = composerRef.current;
+    const start = input?.selectionStart ?? selectionRef.current.start ?? composer.length;
+    const end = input?.selectionEnd ?? selectionRef.current.end ?? start;
+    const next = `${composer.slice(0, start)}${emoji}${composer.slice(end)}`;
+    const cursor = start + emoji.length;
+    setComposer(next);
+    selectionRef.current = { start: cursor, end: cursor };
     window.requestAnimationFrame(() => {
-      document.querySelector(".team-chat-message-input")?.focus();
+      composerRef.current?.focus();
+      composerRef.current?.setSelectionRange(cursor, cursor);
     });
+  };
+
+  const handleReaction = async (message, emoji) => {
+    if (!message?.id || String(message.id).startsWith("pending-")) return;
+    const user = usersById.get(Number(myId)) ?? { id: myId, name: "You" };
+    setMessages((current) =>
+      current.map((item) =>
+        String(item.id) === String(message.id)
+          ? toggleReactionLocally(item, emoji, user)
+          : item
+      )
+    );
+    try {
+      await toggleTeamChatMessageReaction(message.id, emoji);
+    } catch (error) {
+      setMessages((current) =>
+        current.map((item) =>
+          String(item.id) === String(message.id)
+            ? toggleReactionLocally(item, emoji, user)
+            : item
+        )
+      );
+      errToast(error, "Reactions are not available on this server yet");
+    }
   };
 
   const handleSend = async (e) => {
@@ -824,6 +860,8 @@ export default function TeamChat() {
                             msg={msg}
                             mine={mine}
                             showAuthor={!mine && shouldShowAuthor(index, msg)}
+                            currentUserId={myId}
+                            onReact={(emoji) => handleReaction(msg, emoji)}
                             onReply={(message) => {
                               setReplyingTo(message);
                               window.requestAnimationFrame(() => {
@@ -899,7 +937,15 @@ export default function TeamChat() {
                       <div className="relative shrink-0">
                         <button
                           type="button"
-                          onClick={() => setEmojiOpen((open) => !open)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            const input = composerRef.current;
+                            selectionRef.current = {
+                              start: input?.selectionStart ?? composer.length,
+                              end: input?.selectionEnd ?? composer.length,
+                            };
+                            setEmojiOpen((open) => !open);
+                          }}
                           className={`flex h-11 w-11 items-center justify-center rounded-xl text-lg transition ${
                             emojiOpen
                               ? "bg-eirmon-100 text-eirmon-700"
@@ -911,42 +957,30 @@ export default function TeamChat() {
                         >
                           <FaSmile />
                         </button>
-                        {emojiOpen ? (
-                          <div className="team-chat-emoji-picker absolute bottom-14 left-0 z-30 w-72 rounded-2xl p-3 shadow-2xl">
-                            <div className="mb-2 flex items-center justify-between">
-                              <p className="text-xs font-semibold theme-text">
-                                Choose an emoji
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => setEmojiOpen(false)}
-                                className="rounded-md p-1 text-glass-muted hover:bg-black/10"
-                                aria-label="Close emoji picker"
-                              >
-                                <FaTimes className="text-xs" />
-                              </button>
-                            </div>
-                            <div className="grid max-h-52 grid-cols-8 gap-1 overflow-y-auto pr-1">
-                              {CHAT_EMOJIS.map((emoji) => (
-                                <button
-                                  key={emoji}
-                                  type="button"
-                                  onClick={() => insertEmoji(emoji)}
-                                  className="flex h-7 w-7 items-center justify-center rounded-lg text-lg transition hover:scale-110 hover:bg-black/10"
-                                  title={emoji}
-                                  aria-label={`Insert ${emoji}`}
-                                >
-                                  {emoji}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
+                        <EmojiPickerPopover
+                          open={emojiOpen}
+                          onClose={() => setEmojiOpen(false)}
+                          onSelect={insertEmoji}
+                          userId={myId}
+                        />
                       </div>
                       <textarea
+                        ref={composerRef}
                         rows={1}
                         value={composer}
-                        onChange={(e) => setComposer(e.target.value)}
+                        onChange={(e) => {
+                          setComposer(e.target.value);
+                          selectionRef.current = {
+                            start: e.target.selectionStart,
+                            end: e.target.selectionEnd,
+                          };
+                        }}
+                        onSelect={(e) => {
+                          selectionRef.current = {
+                            start: e.currentTarget.selectionStart,
+                            end: e.currentTarget.selectionEnd,
+                          };
+                        }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
