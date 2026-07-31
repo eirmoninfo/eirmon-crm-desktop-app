@@ -1,4 +1,11 @@
-export const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL;
+const DEFAULT_API_BASE_URL = "https://eirmonone.com/api";
+
+// Packaged desktop builds cannot read Vite environment variables at runtime.
+// Keep a production default so Windows installers built without an injected
+// VITE_API_BASE_URL still connect to the Eirmon API.
+export const API_BASE_URL = String(
+  import.meta.env?.VITE_API_BASE_URL || DEFAULT_API_BASE_URL
+).replace(/\/$/, "");
 
 /** Trailing slash stripped; empty if unset. */
 export function getApiRoot() {
