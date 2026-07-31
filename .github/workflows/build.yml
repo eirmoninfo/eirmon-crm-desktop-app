@@ -1,4 +1,4 @@
-name: Windows Release
+name: Desktop Release
 
 on:
   push:
@@ -10,50 +10,94 @@ permissions:
   contents: write
 
 concurrency:
-  group: windows-release-${{ github.ref }}
+  group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   windows:
+    name: Windows installer
     runs-on: windows-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Verify tag matches package version
+      - run: npm ci
+      - name: Verify release version
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
           $packageVersion = node -p "require('./package.json').version"
           $tagVersion = "${{ github.ref_name }}".TrimStart("v")
-          if ($packageVersion -ne $tagVersion) {
-            throw "Tag v$tagVersion does not match package.json version $packageVersion"
-          }
-
-      - name: Test
-        run: node --test src/utils/workspaceNotesModel.test.js
-
-      - name: Build and publish Windows release
+          if ($packageVersion -ne $tagVersion) { throw "Tag v$tagVersion does not match package.json $packageVersion" }
+      - run: npm test
+      - name: Build and publish Windows installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release:win
-
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: eirmon-one-windows-${{ github.ref_name }}
           path: |
             release/*Setup-*.exe
             release/*.exe.blockmap
             release/latest.yml
+          if-no-files-found: error
+
+  macos:
+    name: macOS installers
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify release version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: test "$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME#v}"
+      - run: npm test
+      - name: Build and publish macOS DMG and ZIP
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run release:mac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eirmon-one-macos-${{ github.ref_name }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest-mac.yml
+          if-no-files-found: error
+
+  linux:
+    name: Debian package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify release version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: test "$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME#v}"
+      - run: npm test
+      - name: Build and publish Debian package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run release:linux -- --x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eirmon-one-debian-${{ github.ref_name }}
+          path: |
+            release/*.deb
+            release/latest-linux.yml
           if-no-files-found: error
