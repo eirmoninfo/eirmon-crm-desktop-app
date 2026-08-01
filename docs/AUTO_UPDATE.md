@@ -1,4 +1,4 @@
-# Windows auto-updates
+# macOS and Windows auto-updates
 
 Eirmon One uses `electron-updater` with GitHub Releases. Update checks run only
 in packaged builds; `npm run electron:dev` intentionally reports that updates
@@ -19,6 +19,42 @@ different builds. `electron-builder` generates and publishes them together.
 If differential download cannot be used, `electron-updater` safely downloads
 the full installer.
 
+Each macOS release must contain:
+
+- `Eirmon One-X.Y.Z-x64.dmg` and `Eirmon One-X.Y.Z-arm64.dmg` — installers.
+- Matching ZIP files — these are the payloads used by `electron-updater`.
+- `latest-mac.yml` — the macOS update manifest.
+- Any generated blockmap files.
+
+The macOS app must be signed with an Apple **Developer ID Application**
+certificate. For normal distribution outside the Mac App Store, it should also
+be notarized. An unsigned build can be downloaded manually, but should not be
+treated as a working macOS auto-update release.
+
+## One-time GitHub repository setup
+
+In **Settings → Actions → General → Workflow permissions**, enable **Read and
+write permissions**. The workflow also declares `contents: write`, allowing its
+repository-scoped `GITHUB_TOKEN` to create the GitHub Release.
+
+Windows publishing needs no additional secret. For signed and notarized macOS
+updates, add these repository Actions secrets:
+
+- `MAC_CERTIFICATE_P12` — base64-encoded Developer ID Application `.p12` file.
+- `MAC_CERTIFICATE_PASSWORD` — password used when exporting that `.p12`.
+- `APPLE_ID` — Apple developer account email.
+- `APPLE_APP_SPECIFIC_PASSWORD` — app-specific password for that Apple ID.
+- `APPLE_TEAM_ID` — the 10-character Apple Developer team ID.
+
+For example, create the certificate secret on macOS with:
+
+```bash
+base64 -i DeveloperIDApplication.p12 | pbcopy
+```
+
+Paste the clipboard value into `MAC_CERTIFICATE_P12`. Never commit certificates,
+passwords, Apple credentials, or GitHub tokens to the repository.
+
 ## Version and release process
 
 1. Update the application version:
@@ -36,10 +72,11 @@ the full installer.
    git push origin main --follow-tags
    ```
 
-5. The `Windows Release` GitHub Actions workflow validates that the tag matches
-   `package.json`, builds on Windows, and publishes the installer, `latest.yml`,
-   and blockmap using the repository-scoped `GITHUB_TOKEN`.
-6. Confirm the GitHub release is public and all three assets are present.
+5. The `Desktop Release` GitHub Actions workflow validates that the tag matches
+   `package.json`, builds on native Windows and macOS runners, and publishes the
+   installers and update manifests using the repository-scoped `GITHUB_TOKEN`.
+6. Confirm the GitHub release is public and contains the Windows EXE,
+   `latest.yml`, macOS DMG/ZIP files, `latest-mac.yml`, and blockmaps.
 
 Never ship the same version twice. Update selection is based on semantic
 versioning, so every release must have a version greater than the installed
@@ -62,6 +99,12 @@ Logs are written by `electron-log`. On Windows, inspect:
 %APPDATA%\Eirmon One\logs\main.log
 ```
 
+On macOS, inspect:
+
+```text
+~/Library/Logs/Eirmon One/main.log
+```
+
 ## Troubleshooting
 
 ### No update is found
@@ -71,6 +114,7 @@ Logs are written by `electron-log`. On Windows, inspect:
 - Confirm the tag exactly matches `package.json` (`v0.2.5` for version `0.2.5`).
 - Confirm the GitHub release is published, not only a draft.
 - Confirm `latest.yml` belongs to the same build as the installer.
+- On macOS, confirm `latest-mac.yml` and its referenced ZIP are both attached.
 
 ### GitHub publishing returns 401
 
@@ -97,6 +141,8 @@ back to a full installer download.
 - Check `main.log` for `quitAndInstall` or permission errors.
 - Ensure antivirus software has not quarantined the downloaded installer.
 - Use the **Install Now** button or quit the app normally after choosing Later.
+- On macOS, verify the installed app and new release are signed by the same
+  Developer ID identity (`codesign -dv --verbose=4 "/Applications/Eirmon One.app"`).
 
 ### Windows notification or identity issues
 
