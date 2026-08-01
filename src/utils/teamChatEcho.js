@@ -39,6 +39,13 @@ const REACTION_EVENTS = [
   "reaction.updated",
 ];
 
+const TASK_ASSIGNED_EVENTS = [
+  ".task.assigned",
+  "task.assigned",
+  ".TaskAssigned",
+  "TaskAssigned",
+];
+
 function bindEvents(channel, handlers) {
   const bindings = [];
   if (handlers.onMessage) {
@@ -64,6 +71,13 @@ function bindEvents(channel, handlers) {
   if (handlers.onReaction) {
     for (const ev of REACTION_EVENTS) {
       const callback = (payload) => handlers.onReaction(payload);
+      channel.listen(ev, callback);
+      bindings.push([ev, callback]);
+    }
+  }
+  if (handlers.onTaskAssigned) {
+    for (const ev of TASK_ASSIGNED_EVENTS) {
+      const callback = (payload) => handlers.onTaskAssigned(payload);
       channel.listen(ev, callback);
       bindings.push([ev, callback]);
     }

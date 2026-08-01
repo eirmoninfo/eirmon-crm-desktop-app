@@ -101,6 +101,20 @@ function attachWindowCloseGuard(win) {
   });
 }
 
+function isTrustedPermissionRequester(requestingWebContents) {
+  if (!requestingWebContents) return false;
+  if (requestingWebContents === mainWindow?.webContents) return true;
+  if (requestingWebContents.isDestroyed?.()) return false;
+
+  try {
+    const url = requestingWebContents.getURL();
+    return url.startsWith("file://") || url.startsWith("http://localhost:5173");
+  } catch {
+    // Electron can invoke a permission handler while its WebContents is closing.
+    return false;
+  }
+}
+
 /**
  * Register immediately so invoke never hits "No handler" while the rest of main.js loads.
  * Uses desktopCapturer first; falls back to the main BrowserWindow if getSources fails
@@ -457,20 +471,14 @@ app.whenReady().then(() => {
 
   session.defaultSession.setPermissionRequestHandler(
     (requestingWebContents, permission, callback) => {
-      const trusted =
-        requestingWebContents === mainWindow?.webContents ||
-        requestingWebContents.getURL().startsWith("file://") ||
-        requestingWebContents.getURL().startsWith("http://localhost:5173");
+      const trusted = isTrustedPermissionRequester(requestingWebContents);
       callback(trusted && ["geolocation", "media", "display-capture"].includes(permission));
     }
   );
 
   session.defaultSession.setPermissionCheckHandler(
     (requestingWebContents, permission) => {
-      const trusted =
-        requestingWebContents === mainWindow?.webContents ||
-        requestingWebContents.getURL().startsWith("file://") ||
-        requestingWebContents.getURL().startsWith("http://localhost:5173");
+      const trusted = isTrustedPermissionRequester(requestingWebContents);
       return trusted && ["geolocation", "media", "display-capture"].includes(permission);
     }
   );

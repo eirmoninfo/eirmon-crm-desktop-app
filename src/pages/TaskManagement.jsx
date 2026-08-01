@@ -35,12 +35,10 @@ import { getCurrentUser } from "../api/auth.api";
 import AppLayout from "../components/layout/AppLayout";
 import { GlassButton, PageHeader } from "../components/glass/Glass";
 import Pagination from "../components/Pagination";
-import { getEcho } from "../utils/echo";
 import WorkdayStatusBar from "../components/WorkdayStatusBar";
 import TaskDetailDrawer from "../components/Tasks/TaskDetailDrawer";
 import { breakStart, breakEnd } from "../utils/breakTime";
 import { getToastLogoIcon } from "../utils/appBrand";
-import { showAppNotification } from "../utils/appNotification";
 import { logoutSession } from "../utils/sessionLogout";
 
 const COLUMNS = [
@@ -695,24 +693,8 @@ export default function TaskManagement() {
   }, [loadTodayAttendance]);
 
   useEffect(() => {
-    const rawUser = localStorage.getItem("user");
-    if (!rawUser) return;
-
-    let u;
-    try {
-      u = JSON.parse(rawUser);
-    } catch {
-      return;
-    }
-    if (!u?.id) return;
-
-    const echo = getEcho();
-    if (!echo) return;
-
-    const channel = `user.${u.id}`;
-
-    echo.private(channel).listen(".task.assigned", (e) => {
-      const task = e.task;
+    const onTaskAssigned = (event) => {
+      const task = event?.detail?.task;
       if (!task?.id) return;
 
       setMasterTasks((prev) => {
@@ -720,27 +702,11 @@ export default function TaskManagement() {
         const col = normalizeColumn(task);
         return [...prev, { ...task, status: COLUMN_TO_API[col] }];
       });
+    };
 
-      window.dispatchEvent(
-        new CustomEvent("collabflow:task-assigned", {
-          detail: { task },
-        })
-      );
-
-      showAppNotification({
-        title: "New Task Assigned",
-        body: task.title,
-        toastMessage: `New task: ${task.title}`,
-        toastOptions: { duration: 6000 },
-      }).catch(() => {});
-    });
-
+    window.addEventListener("collabflow:task-assigned", onTaskAssigned);
     return () => {
-      try {
-        echo.leave(channel);
-      } catch {
-        /* ignore */
-      }
+      window.removeEventListener("collabflow:task-assigned", onTaskAssigned);
     };
   }, []);
 

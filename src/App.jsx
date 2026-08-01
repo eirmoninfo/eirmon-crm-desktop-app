@@ -55,6 +55,7 @@ function App() {
   const navigate = useNavigate();
   const chatSnapshotRef = useRef(new Map());
   const notifiedMessageIdsRef = useRef(new Set());
+  const notifiedTaskIdsRef = useRef(new Set());
 
   useEffect(() => {
     const token = getToken();
@@ -136,11 +137,35 @@ function App() {
     const onTaskAssigned = (event) => {
       const task = event?.detail?.task;
       if (!task?.id) return;
+      const taskKey = String(task.id);
+      if (notifiedTaskIdsRef.current.has(taskKey)) return;
+      notifiedTaskIdsRef.current.add(taskKey);
+
+      const notificationItem = {
+        id: `task-${taskKey}`,
+        title: "New Task Assigned",
+        body: String(task.title || "A new task was assigned to you"),
+        route: "/tasks",
+        createdAt: task.created_at || new Date().toISOString(),
+      };
+      window.__collabflowNotifications = [
+        notificationItem,
+        ...(window.__collabflowNotifications || []).filter(
+          (item) => item.id !== notificationItem.id
+        ),
+      ].slice(0, 50);
+      window.dispatchEvent(
+        new CustomEvent("collabflow:notification-added", {
+          detail: notificationItem,
+        })
+      );
+
       showAppNotification({
         title: "New Task Assigned",
-        body: task.title,
-        toastMessage: `New task: ${task.title}`,
+        body: notificationItem.body,
+        toastMessage: `New task: ${notificationItem.body}`,
         toastOptions: { duration: 6000 },
+        route: "/tasks",
       }).catch(() => {});
     };
 
@@ -205,7 +230,18 @@ function App() {
       const userId = getStoredUserId();
       if (userId == null || !getToken()) return;
 
-      subscribeTeamChatUser(userId, { onMessage: dispatchIncoming });
+      subscribeTeamChatUser(userId, {
+        onMessage: dispatchIncoming,
+        onTaskAssigned: (payload) => {
+          const task = payload?.task ?? payload?.data?.task ?? payload?.data ?? payload;
+          if (!task?.id) return;
+          window.dispatchEvent(
+            new CustomEvent("collabflow:task-assigned", {
+              detail: { task },
+            })
+          );
+        },
+      });
       try {
         const response = await teamChatBootstrap();
         if (currentGeneration !== generation) return;
