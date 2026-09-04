@@ -69,8 +69,10 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -z "$CSC_LINK" ]; then
-            echo "::warning::MAC_CERTIFICATE_P12 is not set. Publishing DMG only. Do not upload latest-mac.yml or ZIP until Developer ID signing is configured."
+          if [ -z "${CSC_LINK:-}" ]; then
+            echo "::warning::MAC_CERTIFICATE_P12 is not set. Publishing unsigned DMG only. Do not upload latest-mac.yml or ZIP until Developer ID signing is configured."
+            unset CSC_LINK CSC_KEY_PASSWORD
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
           npm run release:mac
       - uses: actions/upload-artifact@v4
