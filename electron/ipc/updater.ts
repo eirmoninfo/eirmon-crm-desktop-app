@@ -3,21 +3,31 @@ import os from 'node:os';
 import path from 'node:path';
 import pkg from 'electron-updater';
 import log from 'electron-log';
-import { app, shell, type BrowserWindow } from 'electron';
+import { app, net, shell, type BrowserWindow } from 'electron';
 
 const { autoUpdater } = pkg;
 
 const RELEASES_URL = 'https://github.com/eirmoninfo/eirmon-crm-desktop-app/releases/latest';
+const RELEASES_API_URL =
+  'https://api.github.com/repos/eirmoninfo/eirmon-crm-desktop-app/releases/latest';
 const MAC_MANUAL_UPDATE_MESSAGE =
   'On Mac, install updates from the GitHub DMG. In-app auto-update only works when Eirmon One is signed with an Apple Developer ID.';
 
 let updaterInitialized = false;
 let updateCheckPromise: Promise<void> | null = null;
+let macCheckPromise: Promise<{
+  ok: boolean;
+  updateAvailable?: boolean;
+  version?: string;
+  downloadUrl?: string;
+  error?: string;
+}> | null = null;
 let updaterCheckTimer: NodeJS.Timeout | null = null;
 /** When true, skip noisy checking / not-available / error / available UI events. */
 let quietUpdateCheck = false;
 /** Avoid re-prompting the same downloaded version on periodic checks. */
 let lastNotifiedDownloadedVersion: string | null = null;
+let lastNotifiedMacVersion: string | null = null;
 
 interface UpdaterEventPayload {
   type: 'checking' | 'available' | 'not-available' | 'download-progress' | 'downloaded' | 'error' | 'disabled';
@@ -29,6 +39,18 @@ interface UpdaterEventPayload {
   bytesPerSecond?: number;
   message?: string;
   downloadUrl?: string;
+}
+
+interface GithubReleaseAsset {
+  name?: string;
+  browser_download_url?: string;
+}
+
+interface GithubRelease {
+  tag_name?: string;
+  published_at?: string;
+  html_url?: string;
+  assets?: GithubReleaseAsset[];
 }
 
 export function clearMacShipItCache(): void {
@@ -65,13 +87,165 @@ function userFacingUpdaterError(error: unknown): string {
   return 'Could not check for updates.';
 }
 
-function sendMacManualUpdate(mainWindow: BrowserWindow | null, version = ''): void {
-  sendUpdaterEvent(mainWindow, {
-    type: 'error',
-    version,
-    message: MAC_MANUAL_UPDATE_MESSAGE,
-    downloadUrl: RELEASES_URL,
+function parseVersionParts(version: string): number[] {
+  return String(version || '')
+    .trim()
+    .replace(/^v/i, '')
+    .split(/[.+-]/)
+    .map((part) => {
+      const n = Number.parseInt(part, 10);
+      return Number.isFinite(n) ? n : 0;
+    });
+}
+
+function isNewerVersion(remoteVersion: string, localVersion: string): boolean {
+  const remote = parseVersionParts(remoteVersion);
+  const local = parseVersionParts(localVersion);
+  const len = Math.max(remote.length, local.length);
+  for (let i = 0; i < len; i += 1) {
+    const diff = (remote[i] || 0) - (local[i] || 0);
+    if (diff > 0) return true;
+    if (diff < 0) return false;
+  }
+  return false;
+}
+
+function preferMacDmgAsset(assets: GithubReleaseAsset[] = []): GithubReleaseAsset | null {
+  const dmgs = assets.filter((asset) => /\.dmg$/i.test(asset.name || '') && asset.browser_download_url);
+  if (!dmgs.length) return null;
+
+  const wantArm = process.arch === 'arm64';
+  const archMatch = dmgs.find((asset) => {
+    const name = asset.name || '';
+    return wantArm ? /arm64/i.test(name) : !/arm64/i.test(name);
   });
+  return archMatch || dmgs[0] || null;
+}
+
+function fetchJson<T>(url: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const request = net.request({
+      method: 'GET',
+      url,
+      redirect: 'follow',
+    });
+    const chunks: Buffer[] = [];
+
+    request.setHeader('Accept', 'application/vnd.github+json');
+    request.setHeader('User-Agent', 'Eirmon-One-Desktop');
+    request.setHeader('X-GitHub-Api-Version', '2022-11-28');
+
+    request.on('response', (response) => {
+      response.on('data', (chunk) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      });
+      response.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8');
+        const status = response.statusCode || 0;
+        if (status < 200 || status >= 300) {
+          reject(new Error(`GitHub releases request failed (${status}).`));
+          return;
+        }
+        try {
+          resolve(JSON.parse(body) as T);
+        } catch {
+          reject(new Error('GitHub releases response was not valid JSON.'));
+        }
+      });
+      response.on('error', reject);
+    });
+    request.on('error', reject);
+    request.end();
+  });
+}
+
+async function checkMacUpdateViaGithub(
+  mainWindow: BrowserWindow | null,
+  options: { quiet?: boolean } = {}
+): Promise<{
+  ok: boolean;
+  updateAvailable?: boolean;
+  version?: string;
+  downloadUrl?: string;
+  error?: string;
+}> {
+  if (macCheckPromise) return macCheckPromise;
+
+  const quiet = options.quiet === true;
+  macCheckPromise = (async () => {
+    clearMacShipItCache();
+    if (!quiet) {
+      sendUpdaterEvent(mainWindow, { type: 'checking' });
+    }
+
+    try {
+      const release = await fetchJson<GithubRelease>(RELEASES_API_URL);
+      const latestVersion = String(release.tag_name || '').replace(/^v/i, '');
+      const currentVersion = app.getVersion();
+      const dmg = preferMacDmgAsset(release.assets || []);
+      const downloadUrl = dmg?.browser_download_url || release.html_url || RELEASES_URL;
+
+      if (!latestVersion) {
+        throw new Error('Latest Mac release version was missing.');
+      }
+
+      if (!isNewerVersion(latestVersion, currentVersion)) {
+        log.info('[autoUpdater] Mac GitHub check: up to date', {
+          currentVersion,
+          latestVersion,
+        });
+        if (!quiet) {
+          sendUpdaterEvent(mainWindow, {
+            type: 'not-available',
+            version: currentVersion,
+          });
+        }
+        return { ok: true, updateAvailable: false, version: currentVersion, downloadUrl };
+      }
+
+      log.info('[autoUpdater] Mac GitHub check: update available', {
+        currentVersion,
+        latestVersion,
+        downloadUrl,
+      });
+
+      if (!quiet || latestVersion !== lastNotifiedMacVersion) {
+        lastNotifiedMacVersion = latestVersion;
+        sendUpdaterEvent(mainWindow, {
+          type: 'available',
+          version: latestVersion,
+          releaseDate: release.published_at || '',
+          downloadUrl,
+          message: `Version ${latestVersion} is available. Download the Mac DMG to install it.`,
+        });
+      }
+
+      return {
+        ok: true,
+        updateAvailable: true,
+        version: latestVersion,
+        downloadUrl,
+      };
+    } catch (err) {
+      log.error('[autoUpdater] Mac GitHub check failed', err);
+      if (!quiet) {
+        sendUpdaterEvent(mainWindow, {
+          type: 'error',
+          message: MAC_MANUAL_UPDATE_MESSAGE,
+          downloadUrl: RELEASES_URL,
+        });
+      }
+      return {
+        ok: false,
+        error: MAC_MANUAL_UPDATE_MESSAGE,
+        downloadUrl: RELEASES_URL,
+      };
+    } finally {
+      macCheckPromise = null;
+    }
+  })();
+
+  return macCheckPromise;
 }
 
 function initAutoUpdater(mainWindow: BrowserWindow | null): void {
@@ -144,11 +318,22 @@ function initAutoUpdater(mainWindow: BrowserWindow | null): void {
   autoUpdater.on('error', (error: Error) => {
     log.error('[autoUpdater] error', error);
     if (isMacSignatureError(error)) clearMacShipItCache();
+    // Never surface latest-mac.yml / ShipIt noise as a hard failure on quiet checks.
+    if (isMacManifestMissingError(error) || isMacSignatureError(error)) {
+      clearMacShipItCache();
+      if (!quietUpdateCheck) {
+        sendUpdaterEvent(mainWindow, {
+          type: 'error',
+          message: MAC_MANUAL_UPDATE_MESSAGE,
+          downloadUrl: RELEASES_URL,
+        });
+      }
+      return;
+    }
     if (!quietUpdateCheck) {
       sendUpdaterEvent(mainWindow, {
         type: 'error',
         message: userFacingUpdaterError(error),
-        downloadUrl: isMacSignatureError(error) || isMacManifestMissingError(error) ? RELEASES_URL : undefined,
       });
     }
   });
@@ -172,7 +357,17 @@ function checkForUpdatesSafe(
     .then(() => {})
     .catch((err) => {
       log.error('[autoUpdater] checkForUpdates failed', err);
-      if (isMacSignatureError(err)) clearMacShipItCache();
+      if (isMacSignatureError(err) || isMacManifestMissingError(err)) {
+        clearMacShipItCache();
+        if (!quietUpdateCheck) {
+          sendUpdaterEvent(mainWindow, {
+            type: 'error',
+            message: MAC_MANUAL_UPDATE_MESSAGE,
+            downloadUrl: RELEASES_URL,
+          });
+        }
+        return;
+      }
       if (!quietUpdateCheck) {
         sendUpdaterEvent(mainWindow, {
           type: 'error',
@@ -193,6 +388,10 @@ function schedulePeriodicUpdateChecks(mainWindow: BrowserWindow | null): void {
   clearUpdaterTimer();
   const EVERY_30_MIN_MS = 30 * 60 * 1000;
   updaterCheckTimer = setInterval(() => {
+    if (process.platform === 'darwin') {
+      void checkMacUpdateViaGithub(mainWindow, { quiet: true });
+      return;
+    }
     checkForUpdatesSafe(mainWindow, { quiet: true }).catch(() => {
       /* already logged in checkForUpdatesSafe */
     });
@@ -206,9 +405,14 @@ export function setupUpdater(mainWindow: BrowserWindow | null): void {
     return;
   }
 
-  // Unsigned/ad-hoc Mac builds cannot be swapped by ShipIt. Never start Squirrel.
+  // Unsigned/ad-hoc Mac builds cannot be swapped by ShipIt. Never call electron-updater
+  // (it requires latest-mac.yml and fails with 404 / signature errors). Use GitHub DMG checks.
   if (process.platform === 'darwin') {
-    log.info('[autoUpdater] Mac in-app auto-install disabled until Developer ID signing is configured');
+    log.info('[autoUpdater] Mac uses GitHub DMG update checks (no latest-mac.yml / ShipIt)');
+    mainWindow?.webContents.once('did-finish-load', () => {
+      void checkMacUpdateViaGithub(mainWindow, { quiet: true });
+      schedulePeriodicUpdateChecks(mainWindow);
+    });
     return;
   }
 
@@ -221,7 +425,7 @@ export function setupUpdater(mainWindow: BrowserWindow | null): void {
   });
 }
 
-export function handleCheckForUpdates(mainWindow: BrowserWindow | null): Promise<{ ok: boolean; disabled?: boolean; error?: string; downloadUrl?: string }> {
+export function handleCheckForUpdates(mainWindow: BrowserWindow | null): Promise<{ ok: boolean; disabled?: boolean; error?: string; downloadUrl?: string; version?: string }> {
   if (!app.isPackaged) {
     sendUpdaterEvent(mainWindow, {
       type: 'disabled',
@@ -231,13 +435,12 @@ export function handleCheckForUpdates(mainWindow: BrowserWindow | null): Promise
   }
 
   if (process.platform === 'darwin') {
-    clearMacShipItCache();
-    sendMacManualUpdate(mainWindow, app.getVersion());
-    return Promise.resolve({
-      ok: false,
-      error: MAC_MANUAL_UPDATE_MESSAGE,
-      downloadUrl: RELEASES_URL,
-    });
+    return checkMacUpdateViaGithub(mainWindow, { quiet: false }).then((result) => ({
+      ok: result.ok,
+      error: result.error,
+      downloadUrl: result.downloadUrl,
+      version: result.version,
+    }));
   }
 
   initAutoUpdater(mainWindow);
@@ -246,7 +449,7 @@ export function handleCheckForUpdates(mainWindow: BrowserWindow | null): Promise
     .catch((err) => ({
       ok: false,
       error: userFacingUpdaterError(err),
-      downloadUrl: isMacSignatureError(err) ? RELEASES_URL : undefined,
+      downloadUrl: isMacSignatureError(err) || isMacManifestMissingError(err) ? RELEASES_URL : undefined,
     }));
 }
 
@@ -267,9 +470,9 @@ export function handleInstallUpdate(): { ok: boolean; disabled?: boolean; error?
   }
 }
 
-export async function handleOpenLatestRelease(): Promise<{ ok: boolean; error?: string }> {
+export async function handleOpenLatestRelease(downloadUrl?: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    await shell.openExternal(RELEASES_URL);
+    await shell.openExternal(downloadUrl || RELEASES_URL);
     return { ok: true };
   } catch (err) {
     const error = err as Error;

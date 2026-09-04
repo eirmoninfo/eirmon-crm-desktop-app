@@ -84,8 +84,8 @@ const electronAPI = {
   installDownloadedUpdateNow: (): Promise<{ ok: boolean; disabled?: boolean; error?: string }> =>
     ipcRenderer.invoke('app-updater:install-now'),
 
-  openLatestReleasePage: (): Promise<{ ok: boolean; error?: string }> =>
-    ipcRenderer.invoke('app-updater:open-release-page'),
+  openLatestReleasePage: (downloadUrl?: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('app-updater:open-release-page', downloadUrl),
 
   /** OS notification with app logo (main process). */
   showAppNotification: (payload: AppNotificationPayload): Promise<{ ok: boolean; icon?: string | null; error?: string; reason?: string }> =>

@@ -151,9 +151,10 @@ the **same Developer ID Application** certificate. Ad-hoc or unsigned local
 builds cannot auto-update — macOS reports `code failed to satisfy specified code
 requirement(s)`.
 
-Unsigned and ad-hoc Mac builds never call `checkForUpdates` on macOS, so ShipIt
-does not run. **Check updates** opens a short message to download the GitHub DMG
-instead of showing the raw cache path. `npm run release:win` does not replace
+Unsigned and ad-hoc Mac builds never call `electron-updater` (so they do not
+require `latest-mac.yml`). Instead they check the GitHub Releases API and offer
+the matching DMG download. **Check updates** opens that DMG / release page
+instead of showing a `latest-mac.yml` 404. `npm run release:win` does not replace
 the Mac app; install a new Mac DMG / `.app` to pick up this behavior.
 
 To enable Mac auto-update:

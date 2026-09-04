@@ -278,7 +278,11 @@ export default function Home() {
       if (event.type === "available") {
         setCheckingUpdate(false);
         setUpdateHint(
-          event.version ? `Update found: v${event.version}` : "Update found."
+          event.downloadUrl
+            ? `Update v${event.version || ""} available — download the Mac DMG.`
+            : event.version
+              ? `Update found: v${event.version}`
+              : "Update found."
         );
         return;
       }
@@ -296,7 +300,7 @@ export default function Home() {
         setCheckingUpdate(false);
         setUpdateHint(
           event.downloadUrl || /code signature|code requirement|ShipIt|did not pass validation|latest-mac\.yml/i.test(event.message || "")
-            ? "On Mac, download the 0.2.12 DMG from GitHub Releases."
+            ? "On Mac, download the latest DMG from GitHub Releases."
             : event.message || "Update check failed."
         );
       }
@@ -378,14 +382,14 @@ export default function Home() {
       if (!res?.ok && res?.error) {
         setUpdateHint(
           res.downloadUrl || /code signature|code requirement|ShipIt|did not pass validation|latest-mac\.yml/i.test(res.error)
-            ? "On Mac, download the 0.2.12 DMG from GitHub Releases."
+            ? "On Mac, download the latest DMG from GitHub Releases."
             : res.error
         );
       }
     } catch (err) {
       setUpdateHint(
         /code signature|code requirement|ShipIt|did not pass validation|latest-mac\.yml/i.test(err?.message || "")
-          ? "On Mac, download the 0.2.12 DMG from GitHub Releases."
+          ? "On Mac, download the latest DMG from GitHub Releases."
           : err?.message || "Update check failed."
       );
     } finally {

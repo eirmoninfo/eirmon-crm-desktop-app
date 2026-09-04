@@ -122,7 +122,8 @@ export default function AppUpdateOverlay() {
       }
 
       if (event.type === "available") {
-        if (!manual) return;
+        const isMacDmgPrompt = Boolean(event.downloadUrl);
+        if (!manual && !isMacDmgPrompt) return;
         clearManualCheck();
         if (event.version && event.version === getDismissedVersion()) return;
         setState((prev) => ({
@@ -130,7 +131,12 @@ export default function AppUpdateOverlay() {
           visible: true,
           status: "available",
           version: event.version || "",
-          message: "New update found. Downloading in background...",
+          message:
+            event.message ||
+            (isMacDmgPrompt
+              ? `Version ${event.version || "new"} is available. Download the Mac DMG to install it.`
+              : "New update found. Downloading in background..."),
+          downloadUrl: event.downloadUrl || "",
         }));
         return;
       }
@@ -217,7 +223,7 @@ export default function AppUpdateOverlay() {
 
   const openDownloadPage = async () => {
     try {
-      await window.api?.openLatestReleasePage?.();
+      await window.api?.openLatestReleasePage?.(state.downloadUrl || undefined);
     } catch {
       /* overlay still has the message */
     }
@@ -266,7 +272,7 @@ export default function AppUpdateOverlay() {
 
         <p className="mt-3 text-sm text-[var(--theme-text,#334155)]">
           {/code signature|code requirement|ShipIt|did not pass validation|latest-mac\.yml|Cannot find latest-mac/i.test(state.message || "")
-            ? "On Mac, install 0.2.12 from the GitHub DMG. In-app auto-update is not used for unsigned Mac builds."
+            ? "On Mac, download the latest DMG from GitHub Releases. In-app auto-install needs Apple Developer ID signing."
             : state.message}
         </p>
 
@@ -313,7 +319,9 @@ export default function AppUpdateOverlay() {
 
         {state.status === "current" || state.status === "error" || state.status === "available" ? (
           <div className="mt-5 flex justify-end gap-2">
-            {state.status === "error" && (state.downloadUrl || /code signature|ShipIt|code requirement/i.test(state.message || "")) ? (
+            {(state.status === "error" || state.status === "available") &&
+            (state.downloadUrl ||
+              /code signature|ShipIt|code requirement|latest-mac|DMG/i.test(state.message || "")) ? (
               <button
                 type="button"
                 onClick={openDownloadPage}

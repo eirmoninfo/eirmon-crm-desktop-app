@@ -46,10 +46,10 @@ ipcMain.handle('app-updater:install-now', (event) => {
   return handleInstallUpdate();
 });
 
-ipcMain.handle('app-updater:open-release-page', (event) => {
+ipcMain.handle('app-updater:open-release-page', (event, downloadUrl?: string) => {
   const mainWindow = getMainWindow();
   if (!mainWindow || mainWindow.isDestroyed() || event?.sender?.id !== mainWindow.webContents.id) {
     return { ok: false, error: 'Untrusted request.' };
   }
-  return handleOpenLatestRelease();
+  return handleOpenLatestRelease(typeof downloadUrl === 'string' ? downloadUrl : undefined);
 });

@@ -23,7 +23,7 @@ interface ElectronAPI {
   printHtmlReceipt: (payload: Record<string, unknown>) => Promise<{ ok: boolean; message?: string; error?: string }>;
   checkForAppUpdates: () => Promise<{ ok: boolean; disabled?: boolean; error?: string; downloadUrl?: string }>;
   installDownloadedUpdateNow: () => Promise<{ ok: boolean; disabled?: boolean; error?: string }>;
-  openLatestReleasePage: () => Promise<{ ok: boolean; error?: string }>;
+  openLatestReleasePage: (downloadUrl?: string) => Promise<{ ok: boolean; error?: string }>;
   showAppNotification: (payload: {
     title?: string;
     body?: string;
