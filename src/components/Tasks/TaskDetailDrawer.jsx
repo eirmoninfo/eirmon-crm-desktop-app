@@ -11,6 +11,7 @@ import {
   uploadTaskAttachment,
 } from "../../api/tasks.api";
 import { getEcho } from "../../utils/echo";
+import { getStoredUserId } from "../../utils/teamChatHelpers";
 
 const COLUMN_OPTIONS = [
   { id: "todo", label: "Todo" },
@@ -133,6 +134,8 @@ export default function TaskDetailDrawer({
   const [users, setUsers] = useState([]);
   const fileInputRef = useRef(null);
   const dropRef = useRef(null);
+  const commentsEndRef = useRef(null);
+  const currentUserId = Number(getStoredUserId());
 
   const loadTask = useCallback(async () => {
     if (taskId == null) return;
@@ -249,13 +252,34 @@ export default function TaskDetailDrawer({
       });
     };
 
+    const onAttachment = (payload) => {
+      const a = payload?.attachment ?? payload;
+      if (!a?.id) return;
+      setTask((prev) => {
+        if (!prev) return prev;
+        const existing = prev.attachments || [];
+        if (existing.some((x) => Number(x.id) === Number(a.id))) return prev;
+        const nextCount = (prev.attachments_count ?? existing.length) + 1;
+        mergeIntoMaster({ attachments_count: nextCount });
+        return {
+          ...prev,
+          attachments: [...existing, a],
+          attachments_count: nextCount,
+        };
+      });
+    };
+
     channel.listen(".task.comment.created", onComment);
     channel.listen("task.comment.created", onComment);
+    channel.listen(".task.attachment.created", onAttachment);
+    channel.listen("task.attachment.created", onAttachment);
 
     return () => {
       try {
         channel.stopListening(".task.comment.created");
         channel.stopListening("task.comment.created");
+        channel.stopListening(".task.attachment.created");
+        channel.stopListening("task.attachment.created");
         echo.leave(channelName);
       } catch {
         /* ignore */
@@ -321,7 +345,11 @@ export default function TaskDetailDrawer({
       mergeIntoMaster({ comments_count: nextCount });
       setTask((prev) => {
         if (!prev) return prev;
-        const nextComments = [...(prev.comments || []), c].filter(Boolean);
+        const existing = prev.comments || [];
+        if (c?.id && existing.some((x) => Number(x.id) === Number(c.id))) {
+          return { ...prev, comments_count: nextCount };
+        }
+        const nextComments = [...existing, c].filter(Boolean);
         return {
           ...prev,
           comments: nextComments,
@@ -329,7 +357,6 @@ export default function TaskDetailDrawer({
         };
       });
       setCommentBody("");
-      toast.success("Comment added");
     } catch (err) {
       const extra = formatErrors(err);
       if (err?.status === 403) toast.error("Forbidden");
@@ -479,6 +506,15 @@ export default function TaskDetailDrawer({
     return task.project?.title ?? task.project_title ?? task.project_name ?? "—";
   }, [task]);
 
+  const assigneeName =
+    task?.assignee?.name ?? task?.assignee_name ?? "Unassigned";
+  const assignedByName =
+    task?.assigned_by?.name ?? task?.creator?.name ?? task?.created_by_name ?? "";
+
+  useEffect(() => {
+    commentsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [task?.comments?.length]);
+
   if (!open) return null;
 
   return (
@@ -627,6 +663,21 @@ export default function TaskDetailDrawer({
                 <span className="font-medium text-[var(--theme-text)]">{projectLabel}</span>
               </p>
 
+              <div className="mt-3 grid gap-2 rounded-2xl border border-[var(--theme-glass-border)] bg-[var(--theme-hover)] px-3 py-3 text-sm sm:grid-cols-2">
+                <p className="text-glass-muted">
+                  Assigned to{" "}
+                  <span className="font-semibold text-[var(--theme-text)]">
+                    {assigneeName}
+                  </span>
+                </p>
+                <p className="text-glass-muted">
+                  Assigned by{" "}
+                  <span className="font-semibold text-[var(--theme-text)]">
+                    {assignedByName || "—"}
+                  </span>
+                </p>
+              </div>
+
               <section className="mt-6 border-t border-[var(--theme-glass-border)] pt-4">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-[var(--theme-text)]">
@@ -770,30 +821,56 @@ export default function TaskDetailDrawer({
 
               <section className="mt-6 border-t border-[var(--theme-glass-border)] pt-4">
                 <h3 className="mb-2 text-sm font-semibold text-[var(--theme-text)]">
-                  Comments
+                  Task chat
                 </h3>
                 {(task.comments || []).length === 0 ? (
-                  <p className="text-sm text-glass-subtle">No comments yet.</p>
+                  <p className="text-sm text-glass-subtle">
+                    No messages yet. Mentions and files notify the assignee and assigner live.
+                  </p>
                 ) : (
                   <ul className="space-y-3">
-                    {(task.comments || []).map((c) => (
-                      <li
-                        key={c.id ?? `${c.created_at}-${c.body?.slice(0, 20)}`}
-                        className="glass-card-sm px-3 py-2"
-                      >
-                        <p className="text-xs font-semibold text-glass-muted">
-                          {c.user?.name ?? c.user_name ?? "User"}
-                        </p>
-                        <p className="mt-1 whitespace-pre-wrap text-sm text-glass-muted">
-                          {c.body}
-                        </p>
-                        {c.created_at && (
-                          <p className="mt-1 text-[10px] text-glass-subtle">
-                            {new Date(c.created_at).toLocaleString()}
-                          </p>
-                        )}
-                      </li>
-                    ))}
+                    {(task.comments || []).map((c) => {
+                      const mine = Number(c.user_id ?? c.user?.id) === currentUserId;
+                      return (
+                        <li
+                          key={c.id ?? `${c.created_at}-${c.body?.slice(0, 20)}`}
+                          className={`flex ${mine ? "justify-end" : "justify-start"}`}
+                        >
+                          <div
+                            className={`max-w-[85%] rounded-2xl px-3 py-2 ${
+                              mine
+                                ? "bg-[#0a84ff] text-white"
+                                : "glass-card-sm"
+                            }`}
+                          >
+                            <p
+                              className={`text-xs font-semibold ${
+                                mine ? "text-white/80" : "text-glass-muted"
+                              }`}
+                            >
+                              {mine ? "You" : c.user?.name ?? c.user_name ?? "User"}
+                            </p>
+                            <p
+                              className={`mt-1 whitespace-pre-wrap text-sm ${
+                                mine ? "text-white" : "text-glass-muted"
+                              }`}
+                            >
+                              {c.body}
+                            </p>
+                            {c.created_at && (
+                              <p
+                                className={`mt-1 text-[10px] ${
+                                  mine ? "text-white/70" : "text-glass-subtle"
+                                }`}
+                              >
+                                {new Date(c.created_at).toLocaleString()}
+                              </p>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                    <li ref={commentsEndRef} />
                   </ul>
                 )}
               </section>
@@ -813,7 +890,7 @@ export default function TaskDetailDrawer({
                 <input
                   value={commentBody}
                   onChange={(e) => setCommentBody(e.target.value)}
-                  placeholder="Add a comment…"
+                  placeholder="Message this task…"
                   maxLength={5000}
                   className="glass-input min-w-0 flex-1"
                 />

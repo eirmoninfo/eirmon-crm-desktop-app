@@ -9,8 +9,10 @@ lerna-debug.log*
 code-update-auto.txt
 node_modules
 dist
+dist-electron
 dist-ssr
 release/
+*.tsbuildinfo
 *.local
 
 # Electron build artifacts (never commit)

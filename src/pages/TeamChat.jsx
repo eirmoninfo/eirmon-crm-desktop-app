@@ -2,18 +2,23 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import toast from "react-hot-toast";
 import {
+  FaArrowDown,
   FaComments,
   FaPaperPlane,
+  FaPhone,
   FaPlus,
   FaSearch,
   FaSmile,
   FaTimes,
   FaSpinner,
+  FaVideo,
 } from "react-icons/fa";
 import {
   createTeamChatChannel,
+  forwardTeamChatMessage,
   listTeamChatMessages,
   markTeamChatChannelRead,
+  markTeamChatMessageDelivered,
   searchTeamChat,
   sendTeamChatMessage,
   startTeamChatDirect,
@@ -21,6 +26,7 @@ import {
   toggleTeamChatMessageReaction,
 } from "../api/teamChat.api";
 import CreateChannelModal from "../components/TeamChat/CreateChannelModal";
+import ForwardMessageModal from "../components/TeamChat/ForwardMessageModal";
 import EmojiPickerPopover from "../components/TeamChat/EmojiPickerPopover";
 import {
   ChannelListItem,
@@ -40,6 +46,8 @@ import {
   subscribeTeamChatChannel,
 } from "../utils/teamChatEcho";
 import {
+  applyMessageDeliveredEvent,
+  applyMessageReadEvent,
   channelLabel,
   extractChatMessage,
   getMessageAttachments,
@@ -47,13 +55,16 @@ import {
   groupMessagesByDate,
   isDirectChannel,
   mergeMessagesById,
+  messageIdKey,
   messagePreview,
   normalizeMessage,
   parseBootstrap,
   parseChannel,
   parseMessages,
+  sortMessagesChronologically,
 } from "../utils/teamChatHelpers";
 import { toggleReactionLocally } from "../utils/teamChatReactions";
+import { startChatCall } from "../utils/teamChatCall";
 
 function normalizeIncomingTeamChatPayload(payload) {
   const direct = extractChatMessage(payload);
@@ -85,6 +96,7 @@ function normalizeIncomingTeamChatPayload(payload) {
 import { unwrapApiBody } from "../utils/unwrapApiBody";
 
 const POLL_MS = 4000;
+const NEAR_BOTTOM_THRESHOLD = 120;
 function patchChannelLastMessage(channels, channelId, msg) {
   const index = channels.findIndex((c) => Number(c.id) === Number(channelId));
   if (index < 0) return channels;
@@ -143,14 +155,28 @@ export default function TeamChat() {
   const [hasMore, setHasMore] = useState(false);
   const [sidebarTab, setSidebarTab] = useState("channels");
   const [liveConnected, setLiveConnected] = useState(false);
+  const [forwardingMessage, setForwardingMessage] = useState(null);
+  const [forwarding, setForwarding] = useState(false);
+  const [callStarting, setCallStarting] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [newMessagesBelow, setNewMessagesBelow] = useState(0);
 
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const messagesRef = useRef([]);
   const backgroundMessageIdsRef = useRef(new Set());
+  const sendingRef = useRef(false);
+  const recentlySentMessageIdsRef = useRef(new Set());
   const fileInputRef = useRef(null);
   const composerRef = useRef(null);
   const selectionRef = useRef({ start: 0, end: 0 });
   const typingClearRef = useRef(null);
+  const isNearBottomRef = useRef(true);
+  const forceScrollRef = useRef(false);
+  const preserveScrollRef = useRef(null);
+  const lastTailIdRef = useRef(null);
+  const selectedChannelRef = useRef(null);
+  const usersByIdRef = useRef(new Map());
   const myId = getStoredUserId();
 
   const usersById = useMemo(() => {
@@ -164,6 +190,14 @@ export default function TeamChat() {
     [channels, selectedId]
   );
 
+  useEffect(() => {
+    selectedChannelRef.current = selectedChannel;
+  }, [selectedChannel]);
+
+  useEffect(() => {
+    usersByIdRef.current = usersById;
+  }, [usersById]);
+
   const { directChannels, groupChannels } = useMemo(() => {
     const q = searchQ.trim().toLowerCase();
     const list = channels.filter((c) => {
@@ -176,7 +210,10 @@ export default function TeamChat() {
     };
   }, [channels, searchQ, usersById]);
 
-  const messageItems = useMemo(() => groupMessagesByDate(messages), [messages]);
+  const messageItems = useMemo(
+    () => groupMessagesByDate(sortMessagesChronologically(messages)),
+    [messages]
+  );
 
   const otherUsers = useMemo(
     () => users.filter((u) => String(u.id) !== String(myId)),
@@ -192,6 +229,31 @@ export default function TeamChat() {
         .some((value) => String(value).toLowerCase().includes(q))
     );
   }, [otherUsers, searchQ]);
+
+  const scrollToBottom = useCallback((behavior = "auto") => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior });
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior });
+    }
+    isNearBottomRef.current = true;
+    setShowScrollToBottom(false);
+    setNewMessagesBelow(0);
+  }, []);
+
+  const handleMessagesScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const distance =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    const nearBottom = distance < NEAR_BOTTOM_THRESHOLD;
+    isNearBottomRef.current = nearBottom;
+    setShowScrollToBottom(!nearBottom);
+    if (nearBottom) {
+      setNewMessagesBelow(0);
+    }
+  }, []);
 
   const loadBootstrap = useCallback(async () => {
     setLoading(true);
@@ -219,7 +281,6 @@ export default function TeamChat() {
     const onGlobalMessage = (event) => {
       const { message, channelId } = event?.detail || {};
       if (!message?.id || channelId == null) return;
-      if (Number(channelId) === Number(selectedId)) return;
       const key = String(message.id);
       if (backgroundMessageIdsRef.current.has(key)) return;
       backgroundMessageIdsRef.current.add(key);
@@ -228,9 +289,10 @@ export default function TeamChat() {
           [...backgroundMessageIdsRef.current].slice(-150)
         );
       }
+      const isActive = Number(channelId) === Number(selectedId);
       setChannels((prev) =>
         patchChannelLastMessage(prev, channelId, message).map((channel) =>
-          Number(channel.id) === Number(channelId)
+          !isActive && Number(channel.id) === Number(channelId)
             ? {
                 ...channel,
                 unread_count: (Number(channel.unread_count) || 0) + 1,
@@ -249,7 +311,12 @@ export default function TeamChat() {
       const msg = normalizeMessage(rawMsg);
       if (!msg?.id) return;
 
+      const messageKey = messageIdKey(msg.id);
+
       setMessages((prev) => {
+        if (messageKey && prev.some((item) => messageIdKey(item.id) === messageKey)) {
+          return prev;
+        }
         const next = mergeMessagesById(prev, [msg]);
         messagesRef.current = next;
         return next;
@@ -280,13 +347,27 @@ export default function TeamChat() {
             messagesRef.current = next;
             return next;
           });
+        } else if (silent) {
+          setMessages((prev) => {
+            const next = mergeMessagesById(prev, list);
+            const unchanged =
+              next.length === prev.length &&
+              next.every(
+                (message, index) =>
+                  String(message.id) === String(prev[index]?.id)
+              );
+            if (unchanged) return prev;
+            messagesRef.current = next;
+            return next;
+          });
         } else {
           const next = mergeMessagesById([], list);
           messagesRef.current = next;
           setMessages(next);
         }
         if (!beforeId) {
-          await markTeamChatChannelRead(channelId).catch(() => {});
+          const lastMsg = list.length ? list[list.length - 1] : null;
+          await markTeamChatChannelRead(channelId, lastMsg?.id).catch(() => {});
           setChannels((prev) =>
             prev.map((c) =>
               Number(c.id) === Number(channelId) ? { ...c, unread_count: 0 } : c
@@ -302,12 +383,36 @@ export default function TeamChat() {
     []
   );
 
+  const loadOlderMessages = useCallback(() => {
+    if (!messages.length || !selectedId) return;
+    const oldest = sortMessagesChronologically(messages)[0];
+    if (!oldest?.id) return;
+    const container = messagesContainerRef.current;
+    preserveScrollRef.current = container
+      ? { prevHeight: container.scrollHeight }
+      : null;
+    loadMessages(selectedId, {
+      beforeId: oldest.id,
+      append: true,
+    });
+  }, [messages, selectedId, loadMessages]);
+
   useEffect(() => {
     if (!selectedId) {
       setMessages([]);
+      setShowScrollToBottom(false);
+      setNewMessagesBelow(0);
+      lastTailIdRef.current = null;
+      isNearBottomRef.current = true;
       leaveTeamChatChannel();
       return;
     }
+
+    forceScrollRef.current = true;
+    isNearBottomRef.current = true;
+    setShowScrollToBottom(false);
+    setNewMessagesBelow(0);
+    lastTailIdRef.current = null;
 
     loadMessages(selectedId);
 
@@ -315,6 +420,13 @@ export default function TeamChat() {
       onMessage: (payload) => {
         const msg = normalizeIncomingTeamChatPayload(payload);
         if (!msg?.id) return;
+
+        const messageKey = messageIdKey(msg.id);
+        if (messageKey && recentlySentMessageIdsRef.current.has(messageKey)) {
+          recentlySentMessageIdsRef.current.delete(messageKey);
+          return;
+        }
+
         applyIncomingMessage(msg, selectedId);
         if (Number(msg.user_id ?? msg.user?.id) !== Number(myId)) {
           window.dispatchEvent(
@@ -322,11 +434,15 @@ export default function TeamChat() {
               detail: {
                 message: msg,
                 channelId: selectedId,
-                channelName: channelLabel(selectedChannel, usersById),
+                channelName: channelLabel(
+                  selectedChannelRef.current,
+                  usersByIdRef.current
+                ),
               },
             })
           );
-          markTeamChatChannelRead(selectedId).catch(() => {});
+          markTeamChatMessageDelivered(selectedId, msg.id).catch(() => {});
+          markTeamChatChannelRead(selectedId, msg.id).catch(() => {});
         }
       },
       onTyping: (payload) => {
@@ -352,6 +468,20 @@ export default function TeamChat() {
           )
         );
       },
+      onMessageRead: (payload) => {
+        setMessages((current) => {
+          const next = applyMessageReadEvent(current, payload, myId);
+          messagesRef.current = next;
+          return next;
+        });
+      },
+      onMessageDelivered: (payload) => {
+        setMessages((current) => {
+          const next = applyMessageDeliveredEvent(current, payload, myId);
+          messagesRef.current = next;
+          return next;
+        });
+      },
     });
 
     setLiveConnected(subscribed && isEchoConnected());
@@ -361,7 +491,39 @@ export default function TeamChat() {
       setLiveConnected(false);
       if (typingClearRef.current) clearTimeout(typingClearRef.current);
     };
-  }, [selectedId, loadMessages, myId, applyIncomingMessage, selectedChannel, usersById]);
+  }, [selectedId, loadMessages, myId, applyIncomingMessage]);
+
+  /** Global Echo read/delivery receipts (works even when channel subscription races). */
+  useEffect(() => {
+    if (!selectedId) return;
+
+    const onRead = (event) => {
+      const detail = event?.detail ?? {};
+      if (Number(detail.channel_id) !== Number(selectedId)) return;
+      setMessages((current) => {
+        const next = applyMessageReadEvent(current, detail, myId);
+        messagesRef.current = next;
+        return next;
+      });
+    };
+
+    const onDelivered = (event) => {
+      const detail = event?.detail ?? {};
+      if (Number(detail.channel_id) !== Number(selectedId)) return;
+      setMessages((current) => {
+        const next = applyMessageDeliveredEvent(current, detail, myId);
+        messagesRef.current = next;
+        return next;
+      });
+    };
+
+    window.addEventListener("collabflow:team-chat-read", onRead);
+    window.addEventListener("collabflow:team-chat-delivered", onDelivered);
+    return () => {
+      window.removeEventListener("collabflow:team-chat-read", onRead);
+      window.removeEventListener("collabflow:team-chat-delivered", onDelivered);
+    };
+  }, [selectedId, myId]);
 
   /** Poll when WebSocket is off or as backup so chat stays near real-time. */
   useEffect(() => {
@@ -377,11 +539,42 @@ export default function TeamChat() {
   }, [selectedId, loadMessages]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const tailMessage = messages[messages.length - 1];
+    const tailId = tailMessage?.id ?? null;
+    const tailChanged =
+      tailId != null && String(tailId) !== String(lastTailIdRef.current);
+    lastTailIdRef.current = tailId;
+
+    if (preserveScrollRef.current && messagesContainerRef.current) {
+      const { prevHeight } = preserveScrollRef.current;
+      preserveScrollRef.current = null;
+      const container = messagesContainerRef.current;
+      requestAnimationFrame(() => {
+        container.scrollTop = container.scrollHeight - prevHeight;
+      });
+      return;
+    }
+
+    if (forceScrollRef.current) {
+      forceScrollRef.current = false;
+      requestAnimationFrame(() => scrollToBottom("auto"));
+      return;
+    }
+
+    if (!tailChanged) return;
+
+    if (isNearBottomRef.current) {
+      requestAnimationFrame(() => scrollToBottom("smooth"));
+      return;
+    }
+
+    setNewMessagesBelow((count) => count + 1);
+    setShowScrollToBottom(true);
+  }, [messages, scrollToBottom]);
 
   const openChannel = (id) => {
     setReplyingTo(null);
+    setForwardingMessage(null);
     setEmojiOpen(false);
     navigate(`/team-chat/${id}`);
   };
@@ -426,29 +619,42 @@ export default function TeamChat() {
 
   const handleSend = async (e) => {
     e.preventDefault();
-    if (!selectedId) return;
+    if (!selectedId || sendingRef.current) return;
     const text = composer.trim();
     if (!text && !file) return;
 
+    sendingRef.current = true;
     setSending(true);
+    forceScrollRef.current = true;
 
     const pendingId = `pending-${Date.now()}`;
     let localPreviewUrl = null;
+    const pendingMessage = normalizeMessage({
+      id: pendingId,
+      body: text,
+      user_id: myId,
+      user: { id: myId },
+      created_at: new Date().toISOString(),
+      read_receipt: {
+        status: "sent",
+        read_count: 0,
+        delivered_count: 0,
+        total_recipients: 1,
+      },
+      ...(replyingTo
+        ? {
+            reply_to_id: replyingTo.id,
+            reply_to: replyingTo,
+          }
+        : {}),
+      _displayBody: text,
+    });
+
     if (file?.type?.startsWith("image/")) {
       localPreviewUrl = URL.createObjectURL(file);
       applyIncomingMessage(
         normalizeMessage({
-          id: pendingId,
-          body: text,
-          user_id: myId,
-          user: { id: myId },
-          created_at: new Date().toISOString(),
-          ...(replyingTo
-            ? {
-                reply_to_id: replyingTo.id,
-                reply_to: replyingTo,
-              }
-            : {}),
+          ...pendingMessage,
           _attachments: [
             {
               url: localPreviewUrl,
@@ -457,10 +663,11 @@ export default function TeamChat() {
               isImage: true,
             },
           ],
-          _displayBody: text,
         }),
         selectedId
       );
+    } else if (text) {
+      applyIncomingMessage(pendingMessage, selectedId);
     }
 
     try {
@@ -478,7 +685,19 @@ export default function TeamChat() {
       setMessages((prev) => prev.filter((m) => m.id !== pendingId));
 
       if (sent?.id) {
-        applyIncomingMessage(sent, selectedId);
+        recentlySentMessageIdsRef.current.add(messageIdKey(sent.id));
+        applyIncomingMessage(
+          normalizeMessage({
+            ...sent,
+            read_receipt: sent.read_receipt ?? {
+              status: "sent",
+              read_count: 0,
+              delivered_count: 0,
+              total_recipients: 1,
+            },
+          }),
+          selectedId
+        );
         const hasPreview = getMessageAttachments(sent).length > 0;
         if (file && !hasPreview) {
           await loadMessages(selectedId, { silent: true });
@@ -497,7 +716,33 @@ export default function TeamChat() {
       errToast(err, "Failed to send message");
     } finally {
       if (localPreviewUrl) URL.revokeObjectURL(localPreviewUrl);
+      sendingRef.current = false;
       setSending(false);
+    }
+  };
+
+  const handleForwardToChannels = async (channelIds) => {
+    if (!forwardingMessage?.id || !channelIds.length) return;
+    setForwarding(true);
+    try {
+      for (const channelId of channelIds) {
+        await forwardTeamChatMessage(forwardingMessage, channelId);
+      }
+      toast.success(
+        channelIds.length === 1
+          ? "Message forwarded"
+          : `Forwarded to ${channelIds.length} chats`
+      );
+      setForwardingMessage(null);
+      await loadBootstrap();
+      if (channelIds.some((id) => Number(id) === Number(selectedId))) {
+        await loadMessages(selectedId, { silent: true });
+        forceScrollRef.current = true;
+      }
+    } catch (error) {
+      errToast(error, "Failed to forward message");
+    } finally {
+      setForwarding(false);
     }
   };
 
@@ -528,6 +773,32 @@ export default function TeamChat() {
       else toast.error("Could not open direct message");
     } catch (err) {
       errToast(err, "Failed to start direct message");
+    }
+  };
+
+  const handleStartCall = async (video) => {
+    if (!selectedChannel || callStarting) return;
+    setCallStarting(true);
+    try {
+      const { meeting, joinSettings } = await startChatCall({
+        channel: selectedChannel,
+        video,
+      });
+      navigate(`/meetings/${meeting.uuid}`, {
+        state: {
+          autoJoin: true,
+          joinSettings,
+          returnTo: selectedId ? `/team-chat/${selectedId}` : "/team-chat",
+        },
+      });
+      sessionStorage.setItem(
+        "collabflow:meeting-return-to",
+        selectedId ? `/team-chat/${selectedId}` : "/team-chat"
+      );
+    } catch (error) {
+      errToast(error, video ? "Could not start video call" : "Could not start audio call");
+    } finally {
+      setCallStarting(false);
     }
   };
 
@@ -781,7 +1052,32 @@ export default function TeamChat() {
                     </h2>
                     <TypingIndicator names={typingUsers} />
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleStartCall(true)}
+                      disabled={callStarting}
+                      className="team-chat-call-btn"
+                      title="Video call"
+                      aria-label="Start video call"
+                    >
+                      {callStarting ? (
+                        <FaSpinner className="animate-spin text-sm" />
+                      ) : (
+                        <FaVideo className="text-sm" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStartCall(false)}
+                      disabled={callStarting}
+                      className="team-chat-call-btn"
+                      title="Audio call"
+                      aria-label="Start audio call"
+                    >
+                      <FaPhone className="text-sm" />
+                    </button>
+                    <div className="flex flex-col items-end gap-1">
                     {isDirectChannel(selectedChannel) ? (
                       <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200/80">
                         Direct
@@ -805,29 +1101,28 @@ export default function TeamChat() {
                     >
                       {liveConnected ? "● Live" : "↻ Syncing"}
                     </span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
-                  {hasMore && (
-                    <div className="mb-4 flex justify-center">
-                      <button
-                        type="button"
-                        disabled={messagesLoading}
-                        onClick={() => {
-                          const oldest = messages[0];
-                          if (oldest?.id)
-                            loadMessages(selectedId, {
-                              beforeId: oldest.id,
-                              append: true,
-                            });
-                        }}
-                        className="rounded-full bg-white/90 px-4 py-1.5 text-xs font-semibold text-eirmon-700 shadow-sm ring-1 ring-slate-200/80 hover:bg-eirmon-50 disabled:opacity-50"
-                      >
-                        {messagesLoading ? "Loading…" : "Load older messages"}
-                      </button>
-                    </div>
-                  )}
+                <div className="relative min-h-0 flex-1">
+                  <div
+                    ref={messagesContainerRef}
+                    onScroll={handleMessagesScroll}
+                    className="h-full overflow-y-auto px-4 py-4 sm:px-6"
+                  >
+                    {hasMore && (
+                      <div className="mb-4 flex justify-center">
+                        <button
+                          type="button"
+                          disabled={messagesLoading}
+                          onClick={loadOlderMessages}
+                          className="rounded-full bg-white/90 px-4 py-1.5 text-xs font-semibold text-eirmon-700 shadow-sm ring-1 ring-slate-200/80 hover:bg-eirmon-50 disabled:opacity-50"
+                        >
+                          {messagesLoading ? "Loading…" : "Load older messages"}
+                        </button>
+                      </div>
+                    )}
 
                   {messagesLoading && messages.length === 0 ? (
                     <div className="flex justify-center py-16">
@@ -870,12 +1165,27 @@ export default function TeamChat() {
                                   ?.focus();
                               });
                             }}
+                            onForward={(message) => setForwardingMessage(message)}
                           />
                         );
                       })}
                     </div>
                   )}
                   <div ref={messagesEndRef} className="h-2" />
+                  </div>
+
+                  {showScrollToBottom ? (
+                    <button
+                      type="button"
+                      onClick={() => scrollToBottom("smooth")}
+                      className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-eirmon-600 px-4 py-2 text-xs font-semibold text-white shadow-lg transition hover:bg-eirmon-700"
+                    >
+                      <FaArrowDown className="text-[10px]" />
+                      {newMessagesBelow > 0
+                        ? `${newMessagesBelow} new message${newMessagesBelow === 1 ? "" : "s"}`
+                        : "Jump to latest"}
+                    </button>
+                  ) : null}
                 </div>
 
                 <div className="team-chat-composer-wrap p-4 backdrop-blur-sm sm:px-6">
@@ -984,7 +1294,9 @@ export default function TeamChat() {
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !e.shiftKey) {
                             e.preventDefault();
-                            handleSend(e);
+                            if (!sendingRef.current) {
+                              handleSend(e);
+                            }
                           }
                         }}
                         placeholder="Write a message… (Enter to send)"
@@ -1017,6 +1329,16 @@ export default function TeamChat() {
         currentUserId={myId}
         onSubmit={handleCreateChannel}
         submitting={creating}
+      />
+      <ForwardMessageModal
+        open={Boolean(forwardingMessage)}
+        message={forwardingMessage}
+        channels={channels}
+        usersById={usersById}
+        currentChannelId={selectedId}
+        onClose={() => setForwardingMessage(null)}
+        onForward={handleForwardToChannels}
+        submitting={forwarding}
       />
     </AppLayout>
   );

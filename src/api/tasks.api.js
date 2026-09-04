@@ -69,11 +69,18 @@ export async function fetchTasksPage(page = 1, perPage = 20) {
 }
 
 /**
- * GET /tasks/create-data — projects, users, teams, etc. (if provided by API).
- * TaskCreate falls back to /users/company when this route is missing.
+ * GET /tasks/create — projects, users, teams for the create-task form.
+ * (Legacy name create-data is not a real route; keep a fallback try.)
  */
 export async function fetchTaskCreateData() {
-  return apiRequest("/tasks/create-data");
+  try {
+    return await apiRequest("/tasks/create");
+  } catch (err) {
+    if (err?.status === 404) {
+      return apiRequest("/tasks/create-data");
+    }
+    throw err;
+  }
 }
 
 /**

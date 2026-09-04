@@ -10,6 +10,7 @@ import {
 } from "livekit-client";
 import { getConnectionDetails, leaveMeeting } from "../api/meetingsApi";
 import { selectPriorityParticipants } from "../utils/videoPriority";
+import { permissionHelp } from "./useMediaDevices";
 
 const initialState = {
   room: null,
@@ -18,7 +19,25 @@ const initialState = {
   connectionState: ConnectionState.Disconnected,
   connectionQuality: ConnectionQuality.Unknown,
   error: null,
+  mediaRevision: 0,
 };
+
+function mediaToggleError(error, kind) {
+  const help = permissionHelp(error);
+  if (help) return help;
+  const name = error?.name ? `${error.name}: ` : "";
+  const message = error?.message || `Could not toggle ${kind}.`;
+  return `${name}${message}`.trim();
+}
+
+async function ensureMediaAccess({ audio = false, video = false } = {}) {
+  if (!audio && !video) return;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Camera/microphone APIs are unavailable in this build.");
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio, video });
+  stream.getTracks().forEach((track) => track.stop());
+}
 
 export function useLiveKitMeeting(uuid) {
   const [state, setState] = useState(initialState);
@@ -27,12 +46,16 @@ export function useLiveKitMeeting(uuid) {
   const listenersRef = useRef([]);
 
   const syncParticipants = useCallback((room) => {
+    if (!room) return;
     setState((current) => ({
       ...current,
+      // New array + room reference so controls re-render when mute/camera flips.
+      room,
       participants: [room.localParticipant, ...room.remoteParticipants.values()],
       activeSpeakers: room.activeSpeakers.map((p) => p.identity),
       connectionState: room.state,
       connectionQuality: room.localParticipant.connectionQuality,
+      mediaRevision: (current.mediaRevision || 0) + 1,
     }));
   }, []);
 
@@ -45,12 +68,14 @@ export function useLiveKitMeeting(uuid) {
     }));
     remote.forEach((participant) => {
       participant.videoTrackPublications.forEach((publication) => {
-        const subscribed = selected.has(participant.identity);
+        const isScreen = publication.source === Track.Source.ScreenShare;
+        // Always pull screen shares at high quality; never leave them unsubscribed.
+        const subscribed = isScreen || selected.has(participant.identity);
         publication.setSubscribed(subscribed);
         if (subscribed) {
           publication.setVideoQuality(
-            participant.identity === pinnedIdentity || participant.isSpeaking
-              ? VideoQuality.MEDIUM
+            isScreen || participant.identity === pinnedIdentity || participant.isSpeaking
+              ? VideoQuality.HIGH
               : VideoQuality.LOW
           );
         }
@@ -92,17 +117,23 @@ export function useLiveKitMeeting(uuid) {
         dynacast: true,
         disconnectOnPageLeave: true,
         videoCaptureDefaults: {
-          deviceId: selected.videoinput || undefined,
+          ...(selected?.videoinput ? { deviceId: selected.videoinput } : {}),
           resolution: { width: 640, height: 360, frameRate: 24 },
         },
-        audioCaptureDefaults: { deviceId: selected.audioinput || undefined },
+        audioCaptureDefaults: {
+          ...(selected?.audioinput ? { deviceId: selected.audioinput } : {}),
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
         publishDefaults: {
           simulcast: true,
           videoSimulcastLayers: [
             VideoPresets.h180,
             VideoPresets.h360,
           ],
-          stopMicTrackOnMute: true,
+          // Keep mic track alive on mute so unmute is reliable in Electron.
+          stopMicTrackOnMute: false,
         },
       });
       roomRef.current = room;
@@ -115,9 +146,12 @@ export function useLiveKitMeeting(uuid) {
         RoomEvent.ParticipantConnected, RoomEvent.ParticipantDisconnected,
         RoomEvent.TrackPublished, RoomEvent.TrackUnpublished,
         RoomEvent.TrackSubscribed, RoomEvent.TrackUnsubscribed,
+        RoomEvent.LocalTrackPublished, RoomEvent.LocalTrackUnpublished,
+        RoomEvent.TrackMuted, RoomEvent.TrackUnmuted,
         RoomEvent.ActiveSpeakersChanged, RoomEvent.ConnectionQualityChanged,
         RoomEvent.Reconnecting, RoomEvent.Reconnected,
       ].forEach((event) => {
+        if (!event) return;
         room.on(event, sync);
         listenersRef.current.push([event, sync]);
       });
@@ -125,11 +159,23 @@ export function useLiveKitMeeting(uuid) {
       listenersRef.current.push([RoomEvent.Disconnected, onDisconnected]);
       await room.connect(details.url, details.token, { autoSubscribe: false });
       tokenRef.current = null;
-      await room.switchActiveDevice("audioinput", selected.audioinput).catch(() => {});
-      await room.switchActiveDevice("videoinput", selected.videoinput).catch(() => {});
-      if (selected.audiooutput) await room.switchActiveDevice("audiooutput", selected.audiooutput).catch(() => {});
-      await room.localParticipant.setMicrophoneEnabled(Boolean(microphone));
-      await room.localParticipant.setCameraEnabled(Boolean(camera));
+      if (selected?.audioinput) {
+        await room.switchActiveDevice("audioinput", selected.audioinput).catch(() => {});
+      }
+      if (selected?.videoinput) {
+        await room.switchActiveDevice("videoinput", selected.videoinput).catch(() => {});
+      }
+      if (selected?.audiooutput) {
+        await room.switchActiveDevice("audiooutput", selected.audiooutput).catch(() => {});
+      }
+      if (microphone) {
+        await ensureMediaAccess({ audio: true }).catch(() => {});
+        await room.localParticipant.setMicrophoneEnabled(true);
+      }
+      if (camera) {
+        await ensureMediaAccess({ video: true }).catch(() => {});
+        await room.localParticipant.setCameraEnabled(true);
+      }
       sync();
       setState((current) => ({ ...current, room }));
       return room;
@@ -143,15 +189,81 @@ export function useLiveKitMeeting(uuid) {
 
   useEffect(() => () => { void cleanup(); }, [cleanup]);
 
+  const toggleMicrophone = useCallback(async () => {
+    const room = roomRef.current;
+    const local = room?.localParticipant;
+    if (!local) throw new Error("Not connected to the meeting.");
+    const next = !local.isMicrophoneEnabled;
+    try {
+      if (next) await ensureMediaAccess({ audio: true });
+      await local.setMicrophoneEnabled(next);
+      syncParticipants(room);
+      return next;
+    } catch (error) {
+      syncParticipants(room);
+      throw new Error(mediaToggleError(error, "microphone"));
+    }
+  }, [syncParticipants]);
+
+  const toggleCamera = useCallback(async () => {
+    const room = roomRef.current;
+    const local = room?.localParticipant;
+    if (!local) throw new Error("Not connected to the meeting.");
+    const next = !local.isCameraEnabled;
+    try {
+      if (next) await ensureMediaAccess({ video: true });
+      await local.setCameraEnabled(next);
+      syncParticipants(room);
+      return next;
+    } catch (error) {
+      syncParticipants(room);
+      throw new Error(mediaToggleError(error, "camera"));
+    }
+  }, [syncParticipants]);
+
+  const toggleScreenShare = useCallback(async () => {
+    const room = roomRef.current;
+    const local = room?.localParticipant;
+    if (!local) throw new Error("Not connected to the meeting.");
+    const next = !local.isScreenShareEnabled;
+    try {
+      if (next && typeof window.api?.selectLiveScreenSource === "function") {
+        const selection = await window.api.selectLiveScreenSource();
+        if (selection?.cancelled) {
+          const macHint =
+            navigator.userAgent.toLowerCase().includes("mac")
+              ? " Enable Screen Recording for Electron (dev) or Eirmon One in System Settings → Privacy & Security, then restart the app."
+              : "";
+          throw new Error(`Could not access a screen to share.${macHint}`);
+        }
+      }
+      await local.setScreenShareEnabled(
+        next,
+        next
+          ? {
+              audio: false,
+              resolution: VideoPresets.h1080.resolution,
+              contentHint: "detail",
+            }
+          : undefined
+      );
+      syncParticipants(room);
+      return next;
+    } catch (error) {
+      syncParticipants(room);
+      throw new Error(error?.message || "Screen sharing permission was denied.");
+    }
+  }, [syncParticipants]);
+
   return {
     ...state,
     connect,
     disconnect: cleanup,
     applyVideoBudget: (pinned, visible) => roomRef.current && applyVideoBudget(roomRef.current, pinned, visible),
-    toggleMicrophone: () => state.room?.localParticipant.setMicrophoneEnabled(!state.room.localParticipant.isMicrophoneEnabled),
-    toggleCamera: () => state.room?.localParticipant.setCameraEnabled(!state.room.localParticipant.isCameraEnabled),
-    toggleScreenShare: () => state.room?.localParticipant.setScreenShareEnabled(!state.room.localParticipant.isScreenShareEnabled),
-    switchDevice: (kind, id) => state.room?.switchActiveDevice(kind, id),
+    toggleMicrophone,
+    toggleCamera,
+    toggleScreenShare,
+    switchDevice: (kind, id) => roomRef.current?.switchActiveDevice(kind, id),
     Track,
   };
 }

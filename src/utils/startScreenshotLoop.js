@@ -1,4 +1,6 @@
 import { captureAndUpload } from "./screenshotUploader";
+import { shouldCaptureScreenshots } from "./permissions";
+import { getStoredUser } from "./storage";
 
 let timeoutId = null;
 let generation = 0;
@@ -30,8 +32,8 @@ export function startScreenshotLoop(token, config = {}) {
     Number(config.screenshot_max_interval) || MIN_MINUTES
   );
 
-  if (config.enable_screenshots === false) {
-    console.log("[Tracker] Screenshots disabled by admin");
+  if (!shouldCaptureScreenshots(getStoredUser(), config)) {
+    console.log("[Tracker] Screenshots disabled for this user");
     return;
   }
 

@@ -25,20 +25,9 @@ fi
 
 VERSION="${VERSION#v}"
 
-if [[ -z "${GH_TOKEN:-}" ]]; then
-  echo ""
-  echo "❌ GH_TOKEN is not set."
-  echo ""
-  echo "1. GitHub → Settings → Developer settings → Personal access tokens"
-  echo "2. Create token with \"repo\" permission"
-  echo "3. Run:  export GH_TOKEN=ghp_your_token_here"
-  echo "4. Then run this command again."
-  echo ""
-  exit 1
-fi
-
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+bash "$ROOT/scripts/check-gh-token.sh"
 
 echo ""
 echo "📦 Version → $VERSION"

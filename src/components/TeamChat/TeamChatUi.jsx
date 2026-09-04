@@ -4,6 +4,7 @@ import {
   FaHashtag,
   FaImage,
   FaReply,
+  FaShare,
   FaSpinner,
   FaUser,
   FaSmile,
@@ -12,10 +13,12 @@ import EmojiPickerPopover from "./EmojiPickerPopover";
 import { fetchTeamChatMessageFile } from "../../api/teamChat.api";
 import {
   channelLabel,
+  getForwardedContext,
   getMessageAttachments,
   initialsFromName,
   isDirectChannel,
   messagePreview,
+  readReceiptLabel,
 } from "../../utils/teamChatHelpers";
 import {
   isEmojiOnlyMessage,
@@ -157,11 +160,22 @@ export function ChannelListItem({ channel, usersById, active, unread, onSelect }
   );
 }
 
+function downloadImageFile(url, filename) {
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename || "image";
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
 function AuthImage({ att, msg, mine }) {
   const [src, setSrc] = useState(att.url);
   const [loading, setLoading] = useState(Boolean(att.needsAuth));
   const [failed, setFailed] = useState(false);
   const [blobUrl, setBlobUrl] = useState(null);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     let localBlob = null;
@@ -209,6 +223,41 @@ function AuthImage({ att, msg, mine }) {
     setFailed(true);
   };
 
+  const handleDownload = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (downloading) return;
+
+    const filename = att.name || "image.png";
+    setDownloading(true);
+    try {
+      if (blobUrl) {
+        downloadImageFile(blobUrl, filename);
+        return;
+      }
+
+      if (msg?.id) {
+        const localBlob = await fetchTeamChatMessageFile(msg.id);
+        if (localBlob) {
+          downloadImageFile(localBlob, filename);
+          URL.revokeObjectURL(localBlob);
+          return;
+        }
+      }
+
+      const response = await fetch(src);
+      if (!response.ok) throw new Error("Download failed");
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      downloadImageFile(objectUrl, filename);
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      window.open(src, "_blank", "noopener,noreferrer");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex h-32 items-center justify-center rounded-xl bg-white/5">
@@ -227,22 +276,33 @@ function AuthImage({ att, msg, mine }) {
   }
 
   return (
-    <a
-      href={src}
-      target="_blank"
-      rel="noreferrer"
-      className="block overflow-hidden rounded-xl ring-1 ring-black/10"
-    >
-      <img
-        src={src}
-        alt={att.name}
-        className="max-h-64 max-w-full object-contain bg-slate-900/5"
-        loading="lazy"
-        onError={() => {
-          void tryAuthFallback();
-        }}
-      />
-    </a>
+    <div className="team-chat-image-wrap group/image relative inline-block max-w-full overflow-hidden rounded-xl ring-1 ring-black/10">
+      <a href={src} target="_blank" rel="noreferrer" className="block">
+        <img
+          src={src}
+          alt={att.name}
+          className="max-h-64 max-w-full object-contain bg-slate-900/5"
+          loading="lazy"
+          onError={() => {
+            void tryAuthFallback();
+          }}
+        />
+      </a>
+      <button
+        type="button"
+        onClick={handleDownload}
+        disabled={downloading}
+        className="team-chat-image-download absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/65 text-white opacity-0 shadow-lg backdrop-blur-sm transition hover:bg-black/80 focus:opacity-100 group-hover/image:opacity-100 disabled:opacity-70"
+        title="Download image"
+        aria-label="Download image"
+      >
+        {downloading ? (
+          <FaSpinner className="animate-spin text-xs" />
+        ) : (
+          <FaDownload className="text-xs" />
+        )}
+      </button>
+    </div>
   );
 }
 
@@ -276,11 +336,35 @@ function MessageAttachments({ msg, mine }) {
   );
 }
 
+export function ReadReceipt({ receipt }) {
+  const status = receipt?.status || "sent";
+  const label = readReceiptLabel(receipt || { status: "sent" });
+  const isDouble = status === "delivered" || status === "read";
+
+  return (
+    <span
+      className={`team-chat-read-receipt team-chat-read-receipt--${status}`}
+      title={label}
+      aria-label={label}
+    >
+      {isDouble ? (
+        <span className="team-chat-tick-double">
+          <span className="team-chat-tick team-chat-tick--a">✓</span>
+          <span className="team-chat-tick team-chat-tick--b">✓</span>
+        </span>
+      ) : (
+        <span className="team-chat-tick">✓</span>
+      )}
+    </span>
+  );
+}
+
 export function MessageBubble({
   msg,
   mine,
   showAuthor,
   onReply,
+  onForward,
   onReact,
   currentUserId,
 }) {
@@ -306,6 +390,7 @@ export function MessageBubble({
     repliedMessage?.user_name ??
     "Message";
   const repliedText = messagePreview(repliedMessage);
+  const forwardedContext = getForwardedContext(msg);
   const reactions = normalizeReactions(msg);
 
   return (
@@ -320,6 +405,20 @@ export function MessageBubble({
           <p className="mb-1 px-1 text-xs font-semibold text-glass-muted">{author}</p>
         ) : null}
         <div className={mine ? "team-chat-bubble-mine" : "team-chat-bubble-theirs"}>
+          {forwardedContext ? (
+            <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide opacity-75">
+              <FaShare className="text-[10px]" />
+              Forwarded
+            </div>
+          ) : null}
+          {forwardedContext?.preview ? (
+            <div className="mb-2 rounded-lg border-l-2 border-current bg-black/10 px-3 py-2 text-xs opacity-80">
+              <p className="font-semibold">{forwardedContext.author}</p>
+              <p className="mt-0.5 max-w-72 truncate">
+                {forwardedContext.preview || "Attachment"}
+              </p>
+            </div>
+          ) : null}
           {repliedMessage ? (
             <div className="mb-2 rounded-lg border-l-2 border-current bg-black/10 px-3 py-2 text-xs opacity-80">
               <p className="font-semibold">{repliedAuthor}</p>
@@ -351,6 +450,19 @@ export function MessageBubble({
               <span className="text-xs opacity-75">(preview unavailable)</span>
             </p>
           ) : null}
+          {mine ? (
+            <div className="mt-1 flex items-end justify-end gap-1.5 self-end">
+              {time ? (
+                <span className="text-[10px] tabular-nums text-blue-100/80">
+                  {new Date(time).toLocaleTimeString(undefined, {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+              ) : null}
+              <ReadReceipt receipt={msg.read_receipt} />
+            </div>
+          ) : null}
         </div>
         {reactions.length ? (
           <div className={`mt-1 flex flex-wrap gap-1 ${mine ? "justify-end" : ""}`}>
@@ -376,8 +488,8 @@ export function MessageBubble({
           </div>
         ) : null}
         <p
-          className={`mt-1 px-1 text-[10px] tabular-nums ${
-            mine ? "text-right text-glass-muted" : "text-glass-muted"
+          className={`mt-1 flex items-center gap-1 px-1 text-[10px] tabular-nums ${
+            mine ? "hidden" : "text-glass-muted"
           }`}
         >
           {time
@@ -388,6 +500,17 @@ export function MessageBubble({
             : ""}
         </p>
       </div>
+      {onForward ? (
+        <button
+          type="button"
+          onClick={() => onForward(msg)}
+          className="mt-7 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-glass-muted opacity-0 transition hover:bg-white/10 hover:text-eirmon-500 focus:opacity-100 group-hover:opacity-100"
+          title="Forward"
+          aria-label="Forward message"
+        >
+          <FaShare className="text-xs" />
+        </button>
+      ) : null}
       {onReply ? (
         <button
           type="button"

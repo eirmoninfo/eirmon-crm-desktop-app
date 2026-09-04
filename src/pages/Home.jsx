@@ -37,6 +37,7 @@ import {
   formatDurationHMS,
   formatTimeShort,
 } from "../utils/breakTime";
+import { markManualUpdateCheck } from "../components/AppUpdateOverlay";
 
 const TARGET_DAY_HOURS = 8;
 const RECENT_TASKS_LIMIT = 5;
@@ -104,12 +105,12 @@ export default function Home() {
   const [isCheckedIn, setIsCheckedIn] = useState(false);
   const [isCheckedOut, setIsCheckedOut] = useState(false);
   const [onBreak, setOnBreak] = useState(false);
-  const [todayHours, setTodayHours] = useState("0h 0m");
   const [thisWeekHours] = useState("0h 0m");
   const [pendingTasks, setPendingTasks] = useState(0);
   const [recentTasks, setRecentTasks] = useState([]);
   const [tasksLoading, setTasksLoading] = useState(true);
   const [checkInTime, setCheckInTime] = useState(null);
+  const [checkInAt, setCheckInAt] = useState(null);
   const [lastPunchOut, setLastPunchOut] = useState(null);
   const [workingHoursNum, setWorkingHoursNum] = useState(0);
   const [breaks, setBreaks] = useState([]);
@@ -119,18 +120,7 @@ export default function Home() {
   const [checkOutConfirmOpen, setCheckOutConfirmOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
 
-  const dayProgressPercent = useMemo(() => {
-    const pct = Math.round(
-      (Math.min(workingHoursNum, TARGET_DAY_HOURS) / TARGET_DAY_HOURS) * 100
-    );
-    return Math.min(100, Math.max(0, pct));
-  }, [workingHoursNum]);
-
-  useEffect(() => {
-    if (!isCheckedIn && !isCheckedOut) return;
-    const id = setInterval(() => setTimeTick((t) => t + 1), 1000);
-    return () => clearInterval(id);
-  }, [isCheckedIn, isCheckedOut]);
+  const isLiveWorking = isCheckedIn && !isCheckedOut;
 
   const totalBreakSeconds = useMemo(
     () => computeBreakSeconds(breaks, Date.now()),
@@ -141,6 +131,30 @@ export default function Home() {
     () => (onBreak ? currentBreakSeconds(breaks, Date.now()) : 0),
     [breaks, onBreak, timeTick]
   );
+
+  const liveProductionHours = useMemo(() => {
+    if (!isLiveWorking || !checkInAt) {
+      return workingHoursNum;
+    }
+    const checkInMs = new Date(checkInAt).getTime();
+    if (!Number.isFinite(checkInMs)) return workingHoursNum;
+    const elapsedSec = Math.max(0, Math.floor((Date.now() - checkInMs) / 1000));
+    const productionSec = Math.max(0, elapsedSec - totalBreakSeconds);
+    return productionSec / 3600;
+  }, [isLiveWorking, checkInAt, workingHoursNum, totalBreakSeconds, timeTick]);
+
+  const dayProgressPercent = useMemo(() => {
+    const pct = Math.round(
+      (Math.min(liveProductionHours, TARGET_DAY_HOURS) / TARGET_DAY_HOURS) * 100
+    );
+    return Math.min(100, Math.max(0, pct));
+  }, [liveProductionHours]);
+
+  useEffect(() => {
+    if (!isLiveWorking) return;
+    const id = setInterval(() => setTimeTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [isLiveWorking]);
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -179,10 +193,12 @@ export default function Home() {
 
         const wh = parseFloat(att.working_hours || 0);
         setWorkingHoursNum(wh);
-        setTodayHours(formatHours(wh));
 
         if (att.check_in) {
+          setCheckInAt(att.check_in);
           setCheckInTime(formatTime(att.check_in));
+        } else {
+          setCheckInAt(null);
         }
 
         if (att.check_out) {
@@ -214,6 +230,7 @@ export default function Home() {
         setOnBreak(false);
         setBreaks([]);
         setWorkingHoursNum(0);
+        setCheckInAt(null);
       }
 
       try {
@@ -277,7 +294,11 @@ export default function Home() {
       }
       if (event.type === "error") {
         setCheckingUpdate(false);
-        setUpdateHint(event.message || "Update check failed.");
+        setUpdateHint(
+          event.downloadUrl || /code signature|code requirement|ShipIt|did not pass validation|latest-mac\.yml/i.test(event.message || "")
+            ? "On Mac, download the 0.2.12 DMG from GitHub Releases."
+            : event.message || "Update check failed."
+        );
       }
     });
 
@@ -311,6 +332,11 @@ export default function Home() {
       setCheckOutConfirmOpen(false);
       await loadDashboard();
       refreshAttendanceScreenshots();
+      window.dispatchEvent(
+        new CustomEvent("collabflow:attendance-changed", {
+          detail: { source: "check-out", active: false },
+        })
+      );
     } catch (err) {
       toast.error(err?.message || "Check-out failed");
     } finally {
@@ -327,6 +353,12 @@ export default function Home() {
     await apiRequest(endpoint, { method: "POST" });
     await loadDashboard();
     syncElectronBreakState(!ending, { force: ending });
+    refreshAttendanceScreenshots();
+    window.dispatchEvent(
+      new CustomEvent("collabflow:attendance-changed", {
+        detail: { source: "manual-break", active: !ending },
+      })
+    );
   };
 
   const handleCheckForUpdates = async () => {
@@ -334,6 +366,7 @@ export default function Home() {
       toast("Update checks are available in the desktop app.", { icon: "ℹ️" });
       return;
     }
+    markManualUpdateCheck();
     setCheckingUpdate(true);
     setUpdateHint("Checking for updates...");
     try {
@@ -343,10 +376,18 @@ export default function Home() {
         return;
       }
       if (!res?.ok && res?.error) {
-        setUpdateHint(res.error);
+        setUpdateHint(
+          res.downloadUrl || /code signature|code requirement|ShipIt|did not pass validation|latest-mac\.yml/i.test(res.error)
+            ? "On Mac, download the 0.2.12 DMG from GitHub Releases."
+            : res.error
+        );
       }
     } catch (err) {
-      setUpdateHint(err?.message || "Update check failed.");
+      setUpdateHint(
+        /code signature|code requirement|ShipIt|did not pass validation|latest-mac\.yml/i.test(err?.message || "")
+          ? "On Mac, download the 0.2.12 DMG from GitHub Releases."
+          : err?.message || "Update check failed."
+      );
     } finally {
       setCheckingUpdate(false);
     }
@@ -388,15 +429,30 @@ export default function Home() {
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <motion.div
-            className="stat-widget"
+            className={`stat-widget ${isLiveWorking ? "stat-widget-production" : ""}`}
             whileHover={{ y: -2 }}
             transition={{ type: "spring", stiffness: 400, damping: 28 }}
           >
             <div className="flex items-center justify-between">
-              <span className="stat-widget-label">Today&apos;s hours</span>
-              <Clock className="h-4 w-4 text-[#64d2ff]" />
+              <span className="stat-widget-label">
+                {isLiveWorking ? "Production time" : "Today's hours"}
+              </span>
+              <Clock
+                className={`h-4 w-4 ${isLiveWorking ? "stat-widget-icon-production" : "text-[#64d2ff]"}`}
+              />
             </div>
-            <span className="stat-widget-value">{todayHours}</span>
+            <span
+              className={`stat-widget-value tabular-nums ${
+                isLiveWorking ? "stat-widget-value-production" : ""
+              }`}
+            >
+              {formatHours(liveProductionHours)}
+            </span>
+            {isLiveWorking && (
+              <p className="stat-live-indicator">
+                {onBreak ? "Paused on break" : "Live updating"}
+              </p>
+            )}
           </motion.div>
 
           <motion.div className="stat-widget" whileHover={{ y: -2 }}>
@@ -421,7 +477,7 @@ export default function Home() {
           <motion.div className="stat-widget" whileHover={{ y: -2 }}>
             <div className="flex items-center justify-between">
               <span className="stat-widget-label">Break time</span>
-              <Coffee className="h-4 w-4 text-[#ff9f0a]" />
+              <Coffee className="h-4 w-4 text-[#c4a882]" />
             </div>
             <span className="stat-widget-value tabular-nums">
               {formatDurationHMS(totalBreakSeconds)}
@@ -506,14 +562,22 @@ export default function Home() {
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-white/8">
                     <motion.div
-                      className="h-full rounded-full"
-                      style={{
-                        background:
-                          "linear-gradient(90deg, #0a84ff, #5e5ce6)",
-                      }}
+                      className={`h-full rounded-full ${isLiveWorking ? "production-progress-fill" : ""}`}
+                      style={
+                        isLiveWorking
+                          ? undefined
+                          : {
+                              background:
+                                "linear-gradient(90deg, #0a84ff, #5e5ce6)",
+                            }
+                      }
                       initial={{ width: 0 }}
                       animate={{ width: `${dayProgressPercent}%` }}
-                      transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+                      transition={
+                        isLiveWorking
+                          ? { duration: 0.35, ease: "easeOut" }
+                          : { duration: 0.8, ease: [0.22, 1, 0.36, 1] }
+                      }
                     />
                   </div>
                 </div>
@@ -524,6 +588,7 @@ export default function Home() {
                   percent={dayProgressPercent}
                   size={140}
                   label="Today"
+                  variant={isLiveWorking ? "orange" : "blue"}
                 />
                 <div className="grid w-full grid-cols-2 gap-3">
                   <div className="glass-card-sm p-4 text-center">

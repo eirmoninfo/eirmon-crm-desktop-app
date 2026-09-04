@@ -19,10 +19,18 @@ different builds. `electron-builder` generates and publishes them together.
 If differential download cannot be used, `electron-updater` safely downloads
 the full installer.
 
-Each macOS release must contain:
+Each macOS release should contain:
 
-- `Eirmon One-X.Y.Z-x64.dmg` and `Eirmon One-X.Y.Z-arm64.dmg` — installers.
-- Matching ZIP files — these are the payloads used by `electron-updater`.
+- `Eirmon One-X.Y.Z-x64.dmg` and `Eirmon One-X.Y.Z-arm64.dmg` — manual installers.
+
+Do **not** attach `latest-mac.yml` or Mac ZIP files until the app is signed with an
+Apple Developer ID Application certificate. Those files make already-installed
+unsigned Mac apps download a ShipIt update and fail with
+`code failed to satisfy specified code requirement(s)`.
+
+When Developer ID signing is configured, also attach:
+
+- Matching ZIP files — payloads used by `electron-updater`.
 - `latest-mac.yml` — the macOS update manifest.
 - Any generated blockmap files.
 
@@ -84,7 +92,9 @@ version.
 
 ## Runtime behavior
 
-- The app checks after the renderer finishes loading and every 30 minutes.
+- On Windows (packaged), the app checks after the renderer finishes loading and
+  every 30 minutes. On macOS, in-app auto-install stays off until the app is
+  signed with a Developer ID Application certificate.
 - Downloads run automatically in the background.
 - The renderer receives checking, available, progress, downloaded, unavailable,
   disabled, and error events through a narrow `contextBridge` API.
@@ -133,6 +143,25 @@ usually means the installer was replaced without replacing `latest.yml`.
 Verify the `.blockmap` is present and has the exact filename referenced by
 `latest.yml`. Proxy/CDN caching may serve stale metadata. The updater can fall
 back to a full installer download.
+
+### Update downloads but macOS says the signature failed
+
+Squirrel.Mac (ShipIt) will only replace the installed app with a build signed by
+the **same Developer ID Application** certificate. Ad-hoc or unsigned local
+builds cannot auto-update — macOS reports `code failed to satisfy specified code
+requirement(s)`.
+
+Unsigned and ad-hoc Mac builds never call `checkForUpdates` on macOS, so ShipIt
+does not run. **Check updates** opens a short message to download the GitHub DMG
+instead of showing the raw cache path. `npm run release:win` does not replace
+the Mac app; install a new Mac DMG / `.app` to pick up this behavior.
+
+To enable Mac auto-update:
+
+1. Add `MAC_CERTIFICATE_P12` and `MAC_CERTIFICATE_PASSWORD` to GitHub Actions
+   secrets.
+2. Publish a signed, notarized release.
+3. Users must install that signed DMG once; later updates can then apply in-app.
 
 ### Update downloads but does not install
 

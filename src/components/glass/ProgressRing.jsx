@@ -1,7 +1,14 @@
-export default function ProgressRing({ percent = 0, size = 120, stroke = 10, label }) {
+export default function ProgressRing({
+  percent = 0,
+  size = 120,
+  stroke = 10,
+  label,
+  variant = "blue",
+}) {
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (percent / 100) * circumference;
+  const isOrange = variant === "orange";
 
   return (
     <div className="relative inline-flex items-center justify-center">
@@ -10,6 +17,11 @@ export default function ProgressRing({ percent = 0, size = 120, stroke = 10, lab
           <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor="#0a84ff" />
             <stop offset="100%" stopColor="#5e5ce6" />
+          </linearGradient>
+          <linearGradient id="ringGradientOrange" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#ffd699" />
+            <stop offset="45%" stopColor="#ffab40" />
+            <stop offset="100%" stopColor="#e8940a" />
           </linearGradient>
         </defs>
         <circle
@@ -21,7 +33,7 @@ export default function ProgressRing({ percent = 0, size = 120, stroke = 10, lab
           strokeWidth={stroke}
         />
         <circle
-          className="progress-ring-fill"
+          className={`progress-ring-fill${isOrange ? " progress-ring-fill-orange" : ""}`}
           cx={size / 2}
           cy={size / 2}
           r={radius}
@@ -32,7 +44,11 @@ export default function ProgressRing({ percent = 0, size = 120, stroke = 10, lab
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-2xl font-bold tabular-nums theme-text">
+        <span
+          className={`text-2xl font-bold tabular-nums ${
+            isOrange ? "progress-ring-label-production" : "theme-text"
+          }`}
+        >
           {percent}%
         </span>
         {label ? (

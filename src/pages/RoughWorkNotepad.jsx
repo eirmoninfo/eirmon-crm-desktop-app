@@ -68,7 +68,7 @@ function sanitizeHtml(html) {
   const template = document.createElement("template");
   template.innerHTML = String(html || "");
   template.content
-    .querySelectorAll("script,style,iframe,object,embed,meta,link")
+    .querySelectorAll("script,style,iframe,object,embed,meta,link,form,base")
     .forEach((element) => element.remove());
   template.content.querySelectorAll("*").forEach((element) => {
     for (const attribute of [...element.attributes]) {
@@ -76,8 +76,12 @@ function sanitizeHtml(html) {
       const value = attribute.value.trim().toLowerCase();
       if (
         name.startsWith("on") ||
+        name === "srcdoc" ||
+        name === "formaction" ||
         (["href", "src", "xlink:href"].includes(name) &&
-          value.startsWith("javascript:"))
+          (value.startsWith("javascript:") ||
+            value.startsWith("vbscript:") ||
+            value.startsWith("data:text/html")))
       ) {
         element.removeAttribute(attribute.name);
       }

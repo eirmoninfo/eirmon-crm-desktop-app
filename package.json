@@ -1,7 +1,7 @@
 {
   "name": "eirmon-crm",
   "private": true,
-  "version": "0.2.10",
+  "version": "0.2.14",
   "description": "Eirmon CRM desktop application",
   "author": "Eirmon Solutions <support@eirmonsolutions.com>",
   "repository": {
@@ -9,26 +9,28 @@
     "url": "https://github.com/eirmoninfo/eirmon-crm-desktop-app.git"
   },
   "type": "module",
-  "main": "electron/main.cjs",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && npm run build:electron",
+    "build:electron": "tsc -p tsconfig.node.json --outDir dist-electron --rootDir electron --declaration false --sourceMap false",
     "lint": "eslint .",
-    "test": "node --test",
+    "test": "node --import tsx --test",
     "preview": "vite preview",
-    "electron:dev": "env -u ELECTRON_RUN_AS_NODE concurrently -k \"vite\" \"wait-on http://localhost:5173 && env -u ELECTRON_RUN_AS_NODE electron .\"",
-    "dev:electron": "env -u ELECTRON_RUN_AS_NODE concurrently \"vite\" \"wait-on http://localhost:5173 && env -u ELECTRON_RUN_AS_NODE electron .\"",
-    "electron:mac": "vite build && electron-builder --mac",
-    "electron:win": "vite build && electron-builder --win",
-    "electron:linux": "vite build && electron-builder --linux",
-    "electron:chromebook:arm64": "vite build && electron-builder --linux deb AppImage --arm64",
-    "electron:chromebook": "vite build && electron-builder --linux AppImage deb --x64",
+    "electron:dev": "npm run build:electron && env -u ELECTRON_RUN_AS_NODE concurrently -k \"vite\" \"wait-on http://localhost:5173 && env -u ELECTRON_RUN_AS_NODE electron .\"",
+    "dev:electron": "npm run build:electron && env -u ELECTRON_RUN_AS_NODE concurrently \"vite\" \"wait-on http://localhost:5173 && env -u ELECTRON_RUN_AS_NODE electron .\"",
+    "electron:mac": "npm run build && electron-builder --mac --publish never",
+    "electron:win": "npm run build && electron-builder --win",
+    "electron:linux": "npm run build && electron-builder --linux",
+    "electron:linux:arm64:deb": "npm run build && electron-builder --linux deb --arm64",
+    "electron:chromebook:arm64": "npm run build && electron-builder --linux deb AppImage --arm64",
+    "electron:chromebook": "npm run build && electron-builder --linux AppImage deb --x64",
     "postinstall": "electron-builder install-app-deps",
-    "release": "vite build && electron-builder --publish always",
-    "release:win": "vite build && electron-builder --win --publish always",
+    "release": "bash scripts/check-gh-token.sh && npm run build && electron-builder --publish always",
+    "release:win": "bash scripts/check-gh-token.sh && npm run build && electron-builder --win --publish always",
     "release:win:upload": "bash scripts/release-win.sh",
-    "release:mac": "vite build && electron-builder --mac --publish always",
-    "release:linux": "vite build && electron-builder --linux --publish always"
+    "release:mac": "bash scripts/check-gh-token.sh && npm run build && electron-builder --mac --publish always",
+    "release:linux": "bash scripts/check-gh-token.sh && npm run build && electron-builder --linux --publish always"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -46,8 +48,8 @@
     "lucide-react": "^1.23.0",
     "node-fetch": "^3.3.2",
     "pusher-js": "^8.4.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "react-hot-toast": "^2.6.0",
     "react-icons": "^5.5.0",
     "react-router-dom": "^7.11.0",
@@ -55,9 +57,13 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
-    "@types/react": "^19.2.5",
-    "@types/react-dom": "^19.2.3",
+    "@testing-library/jest-native": "^5.4.3",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^5.1.1",
+    "@vitest/ui": "^4.1.10",
     "autoprefixer": "^10.4.23",
     "concurrently": "^9.2.1",
     "electron": "^39.8.9",
@@ -66,15 +72,24 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "jsdom": "^30.0.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2",
     "vite": "^7.2.4",
-    "wait-on": "^9.0.3"
+    "vitest": "^4.1.10",
+    "wait-on": "^9.0.3",
+    "zustand": "^5.0.14"
   },
   "build": {
     "appId": "com.eirmon.crm",
     "productName": "Eirmon One",
     "icon": "public/logo.png",
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
     "publish": [
       {
         "provider": "github",
@@ -94,16 +109,22 @@
     "electronUpdaterCompatibility": ">=2.16",
     "mac": {
       "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "publish": [
+        {
+          "provider": "github",
+          "owner": "eirmoninfo",
+          "repo": "eirmon-crm-desktop-app",
+          "releaseType": "release",
+          "publishAutoUpdate": false
+        }
+      ],
       "target": [
         {
           "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "zip",
           "arch": [
             "x64",
             "arm64"
@@ -113,7 +134,8 @@
       "extendInfo": {
         "NSLocationWhenInUseUsageDescription": "Eirmon CRM uses your location to show local weather in the header.",
         "NSCameraUsageDescription": "Eirmon One uses your camera for video meetings.",
-        "NSMicrophoneUsageDescription": "Eirmon One uses your microphone for video meetings."
+        "NSMicrophoneUsageDescription": "Eirmon One uses your microphone for video meetings.",
+        "NSScreenCaptureUsageDescription": "Eirmon One shares a selected display only after you approve an administrator's live-screen request."
       }
     },
     "win": {
@@ -148,7 +170,8 @@
         {
           "target": "deb",
           "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         }
       ],

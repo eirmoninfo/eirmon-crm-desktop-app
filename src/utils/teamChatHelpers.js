@@ -38,10 +38,46 @@ export function parseBootstrap(res) {
 
 export function parseMessages(res) {
   const raw = unwrapApiBody(res) ?? res;
-  if (Array.isArray(raw)) return raw.map(normalizeMessage);
-  if (Array.isArray(raw?.messages)) return raw.messages.map(normalizeMessage);
-  if (Array.isArray(raw?.data)) return raw.data.map(normalizeMessage);
-  return [];
+  let list = [];
+  if (Array.isArray(raw)) list = raw.map(normalizeMessage);
+  else if (Array.isArray(raw?.messages)) list = raw.messages.map(normalizeMessage);
+  else if (Array.isArray(raw?.data)) list = raw.data.map(normalizeMessage);
+  return sortMessagesChronologically(list);
+}
+
+export function getMessageTimestamp(msg) {
+  if (!msg || typeof msg !== "object") return 0;
+  const candidates = [
+    msg.created_at,
+    msg.timestamp,
+    msg.sent_at,
+    msg.updated_at,
+  ];
+  for (const value of candidates) {
+    const time = new Date(value).getTime();
+    if (Number.isFinite(time)) return time;
+  }
+  return 0;
+}
+
+export function compareMessagesChronologically(a, b) {
+  const timeDiff = getMessageTimestamp(a) - getMessageTimestamp(b);
+  if (timeDiff !== 0) return timeDiff;
+
+  const idA = Number(a?.id);
+  const idB = Number(b?.id);
+  if (Number.isFinite(idA) && Number.isFinite(idB) && idA !== idB) {
+    return idA - idB;
+  }
+
+  return String(a?.id ?? "").localeCompare(String(b?.id ?? ""), undefined, {
+    numeric: true,
+  });
+}
+
+/** Oldest message first (top), newest last (bottom) — WhatsApp-style. */
+export function sortMessagesChronologically(messages = []) {
+  return [...messages].sort(compareMessagesChronologically);
 }
 
 /** Extract message object from HTTP or WebSocket payload. */
@@ -207,18 +243,23 @@ export function normalizeMessage(msg) {
   };
 }
 
+export function messageIdKey(id) {
+  if (id == null || id === "") return null;
+  return String(id);
+}
+
 export function mergeMessagesById(existing, incoming) {
   const map = new Map();
   for (const m of existing) {
-    if (m?.id != null) map.set(m.id, m);
+    const key = messageIdKey(m?.id);
+    if (key != null) map.set(key, m);
   }
   for (const m of incoming) {
     const n = normalizeMessage(m);
-    if (n?.id != null) map.set(n.id, n);
+    const key = messageIdKey(n?.id);
+    if (key != null) map.set(key, n);
   }
-  return [...map.values()].sort(
-    (a, b) => new Date(a.created_at) - new Date(b.created_at)
-  );
+  return sortMessagesChronologically([...map.values()]);
 }
 
 export function parseChannel(res) {
@@ -246,6 +287,32 @@ export function messageAuthor(msg) {
     msg?.user_name ??
     "User"
   );
+}
+
+export function getForwardedContext(msg) {
+  if (!msg || typeof msg !== "object") return null;
+
+  const nested =
+    msg.forwarded_from ??
+    msg.forwarded_from_message ??
+    msg.forwarded_message ??
+    null;
+
+  if (nested && typeof nested === "object") {
+    return {
+      author: messageAuthor(nested),
+      preview: messagePreview(nested),
+    };
+  }
+
+  if (msg.forwarded_from_id || msg.is_forwarded) {
+    return {
+      author: msg.forwarded_author_name ?? msg.forwarded_from_name ?? "User",
+      preview: null,
+    };
+  }
+
+  return null;
 }
 
 export function getStoredUserId() {
@@ -333,4 +400,102 @@ export function formatMessageTime(iso) {
   } catch {
     return String(iso);
   }
+}
+
+export function readReceiptLabel(receipt) {
+  if (!receipt) return "Sent";
+  const status = receipt.status || "sent";
+  const total = Number(receipt.total_recipients || 0);
+  const readCount = Number(receipt.read_count || 0);
+  if (total > 1 && readCount > 0) {
+    return `Read by ${readCount}/${total}`;
+  }
+  if (status === "read") return "Read";
+  if (status === "delivered") return "Delivered";
+  return "Sent";
+}
+
+export function computeReceiptStatus(receipt) {
+  const total = Number(receipt.total_recipients || 1);
+  const readCount = Number(receipt.read_count || 0);
+  const deliveredCount = Number(receipt.delivered_count || 0);
+  if (readCount >= total) return "read";
+  if (deliveredCount >= total || deliveredCount > 0) return "delivered";
+  return receipt.status || "sent";
+}
+
+export function mergeReadReceipt(current, patch) {
+  const base = current || {
+    status: "sent",
+    read_count: 0,
+    delivered_count: 0,
+    total_recipients: 1,
+  };
+  return { ...base, ...patch };
+}
+
+/** Normalize Laravel Echo payload for read/delivery events. */
+export function unwrapEchoReceiptPayload(payload) {
+  const raw = payload?.channel_id != null ? payload : payload?.data ?? payload;
+  return raw && typeof raw === "object" ? raw : {};
+}
+
+export function defaultReadReceipt(receipt) {
+  return (
+    receipt ?? {
+      status: "sent",
+      read_count: 0,
+      delivered_count: 0,
+      total_recipients: 1,
+    }
+  );
+}
+
+export function applyMessageReadEvent(messages, event, myId) {
+  const data = unwrapEchoReceiptPayload(event);
+  const userId = Number(data?.user_id);
+  const lastId = Number(data?.last_read_message_id);
+  if (!lastId || userId === Number(myId)) return messages;
+
+  return messages.map((msg) => {
+    if (Number(msg.user_id ?? msg.user?.id) !== Number(myId)) return msg;
+    if (Number(msg.id) > lastId) return msg;
+
+    const readBy = msg._readBy || new Set();
+    if (readBy.has(userId)) return msg;
+    readBy.add(userId);
+
+    const r = msg.read_receipt || {};
+    const total = Number(r.total_recipients || 1);
+    const readCount = Math.min(total, (r.read_count || 0) + 1);
+    const deliveredCount = Math.max(r.delivered_count || 0, readCount);
+    const next = mergeReadReceipt(r, { read_count: readCount, delivered_count: deliveredCount });
+    next.status = computeReceiptStatus(next);
+
+    return { ...msg, _readBy: readBy, read_receipt: next };
+  });
+}
+
+export function applyMessageDeliveredEvent(messages, event, myId) {
+  const data = unwrapEchoReceiptPayload(event);
+  const userId = Number(data?.user_id);
+  const messageId = Number(data?.message_id);
+  if (!messageId || userId === Number(myId)) return messages;
+
+  return messages.map((msg) => {
+    if (String(msg.id) !== String(messageId)) return msg;
+    if (Number(msg.user_id ?? msg.user?.id) !== Number(myId)) return msg;
+
+    const deliveredTo = msg._deliveredTo || new Set();
+    if (deliveredTo.has(userId)) return msg;
+    deliveredTo.add(userId);
+
+    const r = msg.read_receipt || {};
+    const next = mergeReadReceipt(r, {
+      delivered_count: (r.delivered_count || 0) + 1,
+    });
+    next.status = computeReceiptStatus(next);
+
+    return { ...msg, _deliveredTo: deliveredTo, read_receipt: next };
+  });
 }

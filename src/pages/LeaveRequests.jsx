@@ -6,9 +6,11 @@ import { apiRequest } from "../api/http";
 import { getCurrentUser } from "../api/auth.api";
 import {
   createLeaveRequest,
+  getLeaveBalance,
   getLeaveRequest,
   listLeaveRequests,
   patchLeaveRequest,
+  unwrapLeaveBalance,
 } from "../api/leaveRequests.api";
 import AppLayout from "../components/layout/AppLayout";
 import { GlassButton, PageHeader } from "../components/glass/Glass";
@@ -77,10 +79,11 @@ function errToast(e, fallback) {
   toast.error(msg);
 }
 
-function authUserId(userPayload) {
-  if (!userPayload) return undefined;
-  const u = userPayload.user ?? userPayload;
-  return u?.id ?? u?.user_id;
+function formatDays(n) {
+  if (n == null || n === "") return "—";
+  const num = Number(n);
+  if (Number.isNaN(num)) return String(n);
+  return String(parseFloat(num.toFixed(2)));
 }
 
 function leaveTypeLabel(value) {
@@ -107,6 +110,41 @@ function formatShortType(v) {
   if (!v) return null;
   const m = { morning: "Morning Short", evening: "Evening Short" };
   return m[String(v)] ?? String(v).replace(/_/g, " ");
+}
+
+function estimateRequestDays(form) {
+  const { from_date, to_date, leave_type } = form;
+  if (leave_type === "half") return 0.5;
+  if (leave_type === "short") return 0.25;
+  if (!from_date || !to_date) return 0;
+  const s = new Date(`${from_date}T00:00:00`);
+  const e = new Date(`${to_date}T00:00:00`);
+  if (e < s) return 0;
+  return Math.floor((e - s) / 86400000) + 1;
+}
+
+function requestSplit(balance, form) {
+  const total = estimateRequestDays(form);
+  if (balance && Number(balance.requested_total_days ?? 0) > 0) {
+    return {
+      total: Number(balance.requested_total_days),
+      paid: Number(balance.requested_paid_days ?? 0),
+      unpaid: Number(balance.requested_unpaid_days ?? 0),
+    };
+  }
+  if (!balance || balance.enabled === false) {
+    return { total, paid: 0, unpaid: total };
+  }
+  const types = balance.paid_eligible_types;
+  const eligible = !Array.isArray(types) || types.includes(form.leave_type);
+  if (!eligible) return { total, paid: 0, unpaid: total };
+  const available = Number(balance.available_paid_days ?? 0);
+  const paid = Math.min(total, available);
+  return {
+    total,
+    paid,
+    unpaid: Math.max(0, Math.round((total - paid) * 100) / 100),
+  };
 }
 
 export default function LeaveRequests() {
@@ -141,6 +179,10 @@ export default function LeaveRequests() {
     short_type: "",
     reason: "",
   });
+  const [leaveBalance, setLeaveBalance] = useState(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [pageBalance, setPageBalance] = useState(null);
+  const [pageBalanceLoading, setPageBalanceLoading] = useState(false);
 
   const prevLeaveTypeRef = useRef(null);
   useEffect(() => {
@@ -165,6 +207,78 @@ export default function LeaveRequests() {
     if (leave_type === "short" && !short_type) return false;
     return true;
   }, [createForm]);
+
+  useEffect(() => {
+    const seeded = unwrapLeaveBalance(user?.leave_balance ?? user);
+    if (seeded) setPageBalance(seeded);
+  }, [user]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setPageBalanceLoading(true);
+      try {
+        const res = await getLeaveBalance({
+          leave_type: "casual",
+          total_days: 0,
+        });
+        const data = unwrapLeaveBalance(res);
+        if (!cancelled && data) setPageBalance(data);
+      } catch {
+        // Keep /me or list balance if this endpoint is unavailable.
+      } finally {
+        if (!cancelled) setPageBalanceLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!showCreate) return undefined;
+
+    const totalDays = estimateRequestDays(createForm);
+    if (!createForm.leave_type) {
+      setLeaveBalance(null);
+      return undefined;
+    }
+
+    const timer = setTimeout(async () => {
+      setBalanceLoading(true);
+      try {
+        const res = await getLeaveBalance({
+          leave_type: createForm.leave_type,
+          from_date: createForm.from_date || undefined,
+          to_date: createForm.to_date || undefined,
+          total_days: totalDays > 0 ? totalDays : 0,
+          ...(createForm.leave_type === "half" && createForm.half_type
+            ? { half_type: createForm.half_type }
+            : {}),
+          ...(createForm.leave_type === "short" && createForm.short_type
+            ? { short_type: createForm.short_type }
+            : {}),
+        });
+        const data = unwrapLeaveBalance(res);
+        setLeaveBalance(data);
+      } catch {
+        setLeaveBalance(null);
+      } finally {
+        setBalanceLoading(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [showCreate, createForm]);
+
+  const displayBalance = leaveBalance ?? pageBalance;
+  const previewSplit = requestSplit(displayBalance, createForm);
+
+  const remainingLeaves = useMemo(() => {
+    if (!displayBalance) return null;
+    if (displayBalance.enabled === false) return null;
+    return Number(displayBalance.available_paid_days ?? 0);
+  }, [displayBalance]);
 
   const [detailId, setDetailId] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -194,7 +308,9 @@ export default function LeaveRequests() {
           ...(metaRef.current.can_filter_by_user &&
             filters.user_id && { user_id: filters.user_id }),
         };
-        const res = await listLeaveRequests();
+        const res = await listLeaveRequests(params);
+        const listBalance = unwrapLeaveBalance(res);
+        if (listBalance) setPageBalance(listBalance);
         const pag = res?.data;
         const list = Array.isArray(pag?.data)
           ? pag.data
@@ -313,11 +429,9 @@ export default function LeaveRequests() {
     }
     setCreateFieldErrors({});
 
-    const uid = authUserId(user);
     setCreateSubmitting(true);
     try {
       await createLeaveRequest({
-        ...(uid != null ? { user_id: uid } : {}),
         from_date,
         to_date,
         leave_type,
@@ -336,6 +450,16 @@ export default function LeaveRequests() {
         reason: "",
       });
       fetchList(page);
+      try {
+        const balRes = await getLeaveBalance({
+          leave_type: "casual",
+          total_days: 0,
+        });
+        const balData = unwrapLeaveBalance(balRes);
+        if (balData) setPageBalance(balData);
+      } catch {
+        // keep previous balance card
+      }
     } catch (err) {
       errToast(err, "Could not create leave request");
     } finally {
@@ -406,6 +530,60 @@ export default function LeaveRequests() {
                 </GlassButton>
               }
             />
+
+            {(pageBalanceLoading || pageBalance) && (
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl border border-[#0a84ff]/30 bg-[#0a84ff]/10 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#7eb8ff]">
+                    Available paid
+                  </p>
+                  <p className="mt-1 text-3xl font-bold tabular-nums theme-text">
+                    {pageBalance && pageBalance.enabled !== false
+                      ? formatDays(pageBalance.available_paid_days ?? 0)
+                      : pageBalanceLoading
+                        ? "…"
+                        : "0"}
+                  </p>
+                  <p className="mt-1 text-[11px] text-glass-muted">
+                    {pageBalance?.enabled === false
+                      ? "Paid leave tracking is off"
+                      : user?.name
+                        ? String(user.name)
+                        : "Available paid leave days"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-glass-muted">
+                    Used
+                  </p>
+                  <p className="mt-1 text-2xl font-bold tabular-nums theme-text">
+                    {pageBalance
+                      ? formatDays(pageBalance.used_paid_days ?? 0)
+                      : pageBalanceLoading
+                        ? "…"
+                        : "—"}
+                  </p>
+                  <p className="mt-1 text-[11px] text-glass-muted">
+                    Approved + pending
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-glass-muted">
+                    Rate
+                  </p>
+                  <p className="mt-1 text-2xl font-bold tabular-nums theme-text">
+                    {pageBalance
+                      ? formatDays(pageBalance.paid_leaves_per_month ?? 0)
+                      : pageBalanceLoading
+                        ? "…"
+                        : "—"}
+                  </p>
+                  <p className="mt-1 text-[11px] text-glass-muted">
+                    paid leave(s) / month
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="mt-4 flex flex-wrap items-end gap-3">
               <label className="text-xs font-medium text-glass-muted">
@@ -484,6 +662,8 @@ export default function LeaveRequests() {
                       <th className="px-4 py-3 font-semibold">Period</th>
                       <th className="px-4 py-3 font-semibold">Type</th>
                       <th className="px-4 py-3 font-semibold">Days</th>
+                      <th className="px-4 py-3 font-semibold">Paid</th>
+                      <th className="px-4 py-3 font-semibold">Unpaid</th>
                       <th className="px-4 py-3 font-semibold">Status</th>
                       <th className="px-4 py-3 font-semibold">Reason</th>
                       <th className="px-4 py-3 font-semibold" />
@@ -509,6 +689,12 @@ export default function LeaveRequests() {
                         </td>
                         <td className="px-4 py-3 tabular-nums theme-text">
                           {row.total_days ?? "—"}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums text-emerald-300">
+                          {formatDays(row.paid_days)}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums text-amber-300">
+                          {formatDays(row.unpaid_days)}
                         </td>
                         <td className="px-4 py-3">
                           <span
@@ -604,6 +790,58 @@ export default function LeaveRequests() {
                     className="glass-input mt-1"
                   />
                 </label>
+              </div>
+
+              <p className="text-xs font-medium text-[#7eb8ff]">
+                Total days: {formatDays(estimateRequestDays(createForm))}
+              </p>
+
+              <div
+                className={`rounded-xl border px-4 py-3 text-sm ${
+                  remainingLeaves != null && remainingLeaves <= 0
+                    ? "border-amber-400/40 bg-amber-500/10"
+                    : "border-emerald-400/30 bg-emerald-500/10"
+                }`}
+              >
+                {displayBalance?.enabled === false ? (
+                  <p className="text-xs text-glass-muted">
+                    Paid leave tracking is off for your company
+                  </p>
+                ) : (
+                  <>
+                    <p className="font-semibold theme-text">Paid leave balance</p>
+                    <p className="mt-1 text-glass-muted">
+                      Available:{" "}
+                      <span className="font-semibold tabular-nums theme-text">
+                        {displayBalance
+                          ? formatDays(displayBalance.available_paid_days ?? 0)
+                          : balanceLoading
+                            ? "…"
+                            : "—"}
+                      </span>
+                    </p>
+                    <p className="text-glass-muted">
+                      Used:{" "}
+                      <span className="font-semibold tabular-nums theme-text">
+                        {displayBalance
+                          ? formatDays(displayBalance.used_paid_days ?? 0)
+                          : balanceLoading
+                            ? "…"
+                            : "—"}
+                      </span>
+                    </p>
+                    <p className="text-glass-muted">
+                      This request:{" "}
+                      <span className="font-semibold text-emerald-300">
+                        {formatDays(previewSplit.paid)} paid
+                      </span>
+                      {", "}
+                      <span className="font-semibold text-amber-300">
+                        {formatDays(previewSplit.unpaid)} unpaid
+                      </span>
+                    </p>
+                  </>
+                )}
               </div>
 
               <label className="block text-xs font-medium text-glass-muted">
@@ -797,6 +1035,18 @@ export default function LeaveRequests() {
                       <p className="text-xs text-glass-muted">Total days</p>
                       <p className="font-medium theme-text">
                         {detail.total_days ?? "—"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-glass-muted">Paid days</p>
+                      <p className="font-medium text-emerald-300">
+                        {formatDays(detail.paid_days)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-glass-muted">Unpaid days</p>
+                      <p className="font-medium text-amber-300">
+                        {formatDays(detail.unpaid_days)}
                       </p>
                     </div>
                     <div>

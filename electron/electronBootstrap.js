@@ -4,6 +4,8 @@ import {
   stopAttendanceScreenshotSync,
 } from "../src/utils/attendanceScreenshotSync";
 import { fetchTrackerConfig } from "../src/api/trackerConfig";
+import { shouldCaptureScreenshots } from "../src/utils/permissions";
+import { getStoredUser } from "../src/utils/storage";
 import {
   startLiveScreenMonitoring,
   stopLiveScreenMonitoring,
@@ -16,6 +18,31 @@ import {
 
 let trackerStarted = false;
 let offIdleBreakListener = null;
+let liveMonitoringToken = null;
+let bootstrapPromise = null;
+
+async function ensureLiveScreenMonitoring(token) {
+  if (!token || !window.api) return false;
+  if (liveMonitoringToken === token) return true;
+
+  const liveOk = await startLiveScreenMonitoring(token);
+  if (liveOk) {
+    liveMonitoringToken = token;
+    console.log("[LiveScreen] Monitoring active (WebSocket and/or polling)");
+  } else {
+    console.warn("[LiveScreen] Monitoring not ready; waiting for Echo reconnect");
+    window.addEventListener(
+      "collabflow:echo-ready",
+      () => {
+        ensureLiveScreenMonitoring(token).catch((err) => {
+          console.error("[LiveScreen] Retry failed:", err);
+        });
+      },
+      { once: true }
+    );
+  }
+  return liveOk;
+}
 
 function installIdleBreakListener() {
   if (typeof window.api?.onIdleBreakChanged !== "function") return () => {};
@@ -45,7 +72,16 @@ export async function bootstrapElectron(token) {
     return;
   }
 
-  try {
+  if (bootstrapPromise) return bootstrapPromise;
+  bootstrapPromise = (async () => {
+    // Live-screen requests must not depend on tracker-config, idle, or screenshot setup.
+    try {
+      await ensureLiveScreenMonitoring(token);
+    } catch (err) {
+      console.error("[LiveScreen] Initial monitoring setup failed:", err);
+    }
+
+    try {
     startMotivationNotificationListener();
     offIdleBreakListener = installIdleBreakListener();
 
@@ -54,12 +90,16 @@ export async function bootstrapElectron(token) {
 
       startIdleTracking(config, token);
 
-      startAttendanceScreenshotSync(token, {
-        screenshot_min_interval: config.screenshot_min_interval,
-        screenshot_max_interval: config.screenshot_max_interval,
-        enable_screenshots: config.enable_screenshots,
-        user_screenshot_enabled: config.user_screenshot_enabled,
-      });
+      if (shouldCaptureScreenshots(getStoredUser(), config)) {
+        startAttendanceScreenshotSync(token, {
+          screenshot_min_interval: config.screenshot_min_interval,
+          screenshot_max_interval: config.screenshot_max_interval,
+          enable_screenshots: config.enable_screenshots,
+          user_screenshot_enabled: config.user_screenshot_enabled,
+        });
+      } else {
+        console.log("[Tracker] Screenshots skipped for admin/disabled user");
+      }
 
       trackerStarted = true;
       console.log("[Tracker] Started:", config);
@@ -67,26 +107,19 @@ export async function bootstrapElectron(token) {
       console.log("[Tracker] Already running");
     }
 
-    const liveOk = await startLiveScreenMonitoring(token);
-    if (!liveOk) {
-      console.warn("[LiveScreen] Not listening yet — will retry when Echo connects");
-      window.addEventListener(
-        "collabflow:echo-ready",
-        () => {
-          startLiveScreenMonitoring(token).catch((err) => {
-            console.error("[LiveScreen] Retry failed:", err);
-          });
-        },
-        { once: true }
-      );
+    } catch (err) {
+      console.error("[Tracker] Bootstrap failed (live-screen monitoring remains active):", err);
+      stopIdleTracking();
+      stopAttendanceScreenshotSync();
+      stopMotivationNotificationListener();
+      trackerStarted = false;
     }
-  } catch (err) {
-    console.error("[Tracker] Bootstrap failed:", err);
-    stopIdleTracking();
-    stopAttendanceScreenshotSync();
-    stopLiveScreenMonitoring();
-    stopMotivationNotificationListener();
-    trackerStarted = false;
+  })();
+
+  try {
+    return await bootstrapPromise;
+  } finally {
+    bootstrapPromise = null;
   }
 }
 
@@ -96,6 +129,8 @@ export function resetTrackerBootstrap() {
   stopAttendanceScreenshotSync();
   stopIdleTracking();
   stopLiveScreenMonitoring();
+  liveMonitoringToken = null;
+  bootstrapPromise = null;
   stopMotivationNotificationListener();
   if (typeof offIdleBreakListener === "function") {
     offIdleBreakListener();

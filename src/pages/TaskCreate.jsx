@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
-import { ArrowLeft, Check, ListTodo, Search } from "lucide-react";
+import { ArrowLeft, Check, ListTodo, Paperclip, Search, X } from "lucide-react";
 import { apiRequest } from "../api/http";
 import { getCurrentUser } from "../api/auth.api";
-import { createTask, fetchTaskCreateData } from "../api/tasks.api";
+import { createTask, fetchTaskCreateData, uploadTaskAttachment } from "../api/tasks.api";
 import AppLayout from "../components/layout/AppLayout";
 import { GlassButton, PageHeader } from "../components/glass/Glass";
 import WorkdayStatusBar from "../components/WorkdayStatusBar";
@@ -37,29 +37,31 @@ const selectClass = "glass-select mt-1.5 w-full";
 const labelClass = "glass-field text-sm font-medium";
 
 function extractCreatePayload(res) {
-  const d = res?.data ?? {};
-  const projects = Array.isArray(d.projects)
-    ? d.projects
-    : Array.isArray(res?.projects)
-      ? res.projects
-      : Array.isArray(d.data?.projects)
-        ? d.data.projects
-        : [];
-  const users = Array.isArray(d.users)
-    ? d.users
-    : Array.isArray(res?.users)
-      ? res.users
-      : Array.isArray(d.data?.users)
-        ? d.data.users
-        : [];
-  const teams = Array.isArray(d.teams)
-    ? d.teams
-    : Array.isArray(res?.teams)
-      ? res.teams
-      : Array.isArray(d.data?.teams)
-        ? d.data.teams
-        : [];
+  // API: { status: true, projects, users, teams }
+  // Also tolerate nested { data: { projects } } shapes.
+  const roots = [res, res?.data, res?.data?.data].filter(Boolean);
+  let projects = [];
+  let users = [];
+  let teams = [];
+
+  for (const root of roots) {
+    if (!projects.length && Array.isArray(root.projects)) projects = root.projects;
+    if (!users.length && Array.isArray(root.users)) users = root.users;
+    if (!teams.length && Array.isArray(root.teams)) teams = root.teams;
+  }
+
   return { projects, users, teams };
+}
+
+function unwrapProjectsList(res) {
+  if (!res) return [];
+  if (Array.isArray(res)) return res;
+  if (Array.isArray(res.projects)) return res.projects;
+  const d = res.data;
+  if (Array.isArray(d)) return d;
+  if (Array.isArray(d?.data)) return d.data;
+  if (Array.isArray(d?.projects)) return d.projects;
+  return [];
 }
 
 function errToast(e, fallback) {
@@ -108,6 +110,8 @@ export default function TaskCreate() {
     status: "pending",
   });
   const [selectedUserIds, setSelectedUserIds] = useState([]);
+  const [pendingFiles, setPendingFiles] = useState([]);
+  const prefilledAssignee = useRef(false);
 
   const [todayAttendance, setTodayAttendance] = useState(null);
   const [todayHasActiveBreak, setTodayHasActiveBreak] = useState(false);
@@ -138,17 +142,10 @@ export default function TaskCreate() {
 
       try {
         const res = await fetchTaskCreateData();
-        if (
-          res?.status === true ||
-          res?.status === "success" ||
-          res?.projects ||
-          res?.data
-        ) {
-          const ex = extractCreatePayload(res);
-          projs = ex.projects;
-          usr = ex.users;
-          tms = ex.teams;
-        }
+        const ex = extractCreatePayload(res);
+        projs = ex.projects;
+        usr = ex.users;
+        tms = ex.teams;
       } catch {
         /* use fallbacks below */
       }
@@ -166,12 +163,7 @@ export default function TaskCreate() {
       if (projs.length === 0) {
         try {
           const pres = await apiRequest("/projects?page=1&per_page=100");
-          const pag = pres?.data;
-          projs = Array.isArray(pag?.data)
-            ? pag.data
-            : Array.isArray(pres?.data)
-              ? pres.data
-              : [];
+          projs = unwrapProjectsList(pres);
         } catch {
           projs = [];
         }
@@ -180,6 +172,10 @@ export default function TaskCreate() {
       setProjects(projs);
       setUsers(usr);
       setTeams(tms);
+
+      if (projs.length === 0) {
+        toast.error("No projects available. Ask an admin to add a project or grant project access.");
+      }
     } catch (e) {
       errToast(e, "Could not load form data");
     } finally {
@@ -206,6 +202,14 @@ export default function TaskCreate() {
   useEffect(() => {
     loadTodayAttendance();
   }, [loadTodayAttendance]);
+
+  useEffect(() => {
+    if (prefilledAssignee.current) return;
+    const id = user?.user?.id ?? user?.data?.user?.id ?? user?.data?.id ?? user?.id;
+    if (!id || users.length === 0) return;
+    prefilledAssignee.current = true;
+    setSelectedUserIds([Number(id)]);
+  }, [user, users]);
 
   useEffect(() => {
     const onAttendanceChanged = () => loadTodayAttendance();
@@ -312,9 +316,23 @@ export default function TaskCreate() {
     try {
       const payload = buildPayload();
       const res = await createTask(payload);
-      if (res?.status === true || res?.status === "success" || res?.task) {
-        toast.success(res?.message || "Task created");
-        navigate("/tasks");
+      const created = Array.isArray(res?.tasks)
+        ? res.tasks
+        : res?.task
+          ? [res.task]
+          : [];
+      if (pendingFiles.length > 0 && created.length > 0) {
+        for (const task of created) {
+          if (!task?.id) continue;
+          for (const file of pendingFiles) {
+            await uploadTaskAttachment(task.id, file);
+          }
+        }
+      }
+      if (res?.status === true || res?.status === "success" || res?.task || created.length) {
+        toast.success(res?.message || "Task created. Assignees were notified.");
+        const firstId = created[0]?.id;
+        navigate(firstId ? `/tasks?task=${firstId}` : "/tasks");
         return;
       }
       toast.success("Task created");
@@ -330,6 +348,13 @@ export default function TaskCreate() {
     logoutSession();
     navigate("/login");
   };
+
+  const assignerName =
+    user?.user?.name ?? user?.data?.user?.name ?? user?.data?.name ?? user?.name ?? "You";
+  const selectedPeople = users.filter((u) =>
+    selectedUserIds.includes(Number(u.id ?? u.user_id))
+  );
+  const selectedTeam = teams.find((tm) => String(tm.id) === String(form.team_id));
 
   const projectOptions = useMemo(() => {
     return projects.map((p) => ({
@@ -367,7 +392,7 @@ export default function TaskCreate() {
       <div className="mx-auto w-full max-w-3xl">
         <PageHeader
           title="Create task"
-          subtitle="Tasks"
+          subtitle="Assign work, attach files, and notify people in real time"
           actions={
             <Link
               to="/tasks"
@@ -467,6 +492,21 @@ export default function TaskCreate() {
 
           <section>
             <h2 className="form-section-title">Assignment</h2>
+            <div className="mb-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-glass-muted">
+              <p>
+                Assigned by{" "}
+                <span className="font-semibold text-white">{assignerName}</span>
+              </p>
+              <p className="mt-1 text-xs text-glass-subtle">
+                {form.assignee_type === "team"
+                  ? selectedTeam
+                    ? `Team ${selectedTeam.name} will be notified.`
+                    : "Select a team to notify members."
+                  : selectedPeople.length
+                    ? `Notifying ${selectedPeople.map((p) => p.name || p.email).join(", ")}.`
+                    : "Select at least one person. They get a desktop notification instantly."}
+              </p>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className={labelClass}>
                 <span>
@@ -588,6 +628,49 @@ export default function TaskCreate() {
                 </div>
               </div>
             )}
+          </section>
+
+          <section>
+            <h2 className="form-section-title">Attachments</h2>
+            <p className="mb-3 text-xs text-glass-subtle">
+              Files are attached to the new task so assignees see them immediately.
+            </p>
+            <label className="glass-card-sm flex cursor-pointer flex-col items-center justify-center gap-2 border-dashed px-4 py-6 text-center text-sm text-glass-muted">
+              <Paperclip className="h-4 w-4" />
+              <span>Add files (optional, 15 MB each)</span>
+              <input
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const next = Array.from(e.target.files || []);
+                  setPendingFiles((prev) => [...prev, ...next]);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {pendingFiles.length > 0 ? (
+              <ul className="mt-3 space-y-2">
+                {pendingFiles.map((file, idx) => (
+                  <li
+                    key={`${file.name}-${idx}`}
+                    className="flex items-center justify-between gap-2 rounded-xl bg-white/5 px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 truncate text-white/90">{file.name}</span>
+                    <button
+                      type="button"
+                      className="rounded-lg p-1 text-glass-subtle hover:text-white"
+                      onClick={() =>
+                        setPendingFiles((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      aria-label="Remove file"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </section>
 
           <section>

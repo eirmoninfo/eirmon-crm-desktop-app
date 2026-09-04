@@ -259,9 +259,9 @@ export default function Header({
             }}
             aria-label="Profile menu"
           >
-            {profile.avatar ? (
+            {profile.avatar || profile.avatar_url ? (
               <img
-                src={profile.avatar}
+                src={profile.avatar_url || profile.avatar}
                 alt=""
                 className="h-full w-full object-cover"
               />
@@ -300,11 +300,17 @@ export default function Header({
                   </span>
                 </div>
                 <div className="p-2">
-                  <span className="flex cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-glass-subtle">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsProfileOpen(false);
+                      navigate("/profile");
+                    }}
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm theme-text transition hover:bg-[var(--theme-hover)]"
+                  >
                     <User className="h-4 w-4" />
                     My profile
-                    <span className="ml-auto text-[10px] uppercase">Soon</span>
-                  </span>
+                  </button>
                   <button
                     type="button"
                     onClick={handleLogout}

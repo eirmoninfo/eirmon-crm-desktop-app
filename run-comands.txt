@@ -1,9 +1,24 @@
 # Dev app
 npm run electron:dev
 
-# Windows build + GitHub upload (new version)
-export GH_TOKEN=your_github_token_here
-npm run release:win:upload -- 0.1.7
+# GitHub upload needs a valid token (do not put it in .env files)
+unset GH_TOKEN GITHUB_TOKEN
+export GH_TOKEN=ghp_your_new_token
+
+# Windows build + GitHub upload
+npm run release:win
+
+# Version bump + Windows upload
+npm run release:win:upload -- 0.2.12
 
 # Same + git commit + tag + push
-npm run release:win:upload -- 0.1.7 --push
+npm run release:win:upload -- 0.2.12 --push
+
+# Local Mac build (manual DMG install; no in-app auto-update until Developer ID)
+# Quit Eirmon One first, then:
+#   rm -rf ~/Library/Caches/com.eirmon.crm.ShipIt
+npm run electron:mac
+
+# Stop the ShipIt signature popup on already-installed Mac apps:
+# On GitHub Releases, delete latest-mac.yml and the *-mac.zip files.
+# Keep the .dmg files for manual install.

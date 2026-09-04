@@ -1,12 +1,14 @@
-export const THEME_STORAGE_KEY = "eirmon.theme";
-const LEGACY_THEME_STORAGE_KEY = "erimon.theme";
+export const THEME_STORAGE_KEY = 'eirmon.theme';
+const LEGACY_THEME_STORAGE_KEY = 'erimon.theme';
 
 export const THEMES = {
-  dark: "dark",
-  light: "light",
-};
+  dark: 'dark',
+  light: 'light',
+} as const;
 
-export function getStoredTheme() {
+export type Theme = (typeof THEMES)[keyof typeof THEMES];
+
+export function getStoredTheme(): Theme {
   try {
     const stored =
       localStorage.getItem(THEME_STORAGE_KEY) ??
@@ -18,9 +20,9 @@ export function getStoredTheme() {
   return THEMES.dark;
 }
 
-export function applyTheme(theme) {
+export function applyTheme(theme: Theme): Theme {
   const next = theme === THEMES.light ? THEMES.light : THEMES.dark;
-  document.documentElement.setAttribute("data-theme", next);
+  document.documentElement.setAttribute('data-theme', next);
   try {
     localStorage.setItem(THEME_STORAGE_KEY, next);
   } catch {
@@ -29,6 +31,6 @@ export function applyTheme(theme) {
   return next;
 }
 
-export function initTheme() {
+export function initTheme(): Theme {
   return applyTheme(getStoredTheme());
 }

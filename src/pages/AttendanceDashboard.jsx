@@ -43,9 +43,10 @@ const AttendanceDashboard = () => {
   const canMarkOthers = user?.can?.('mark attendance for others') ?? false;
 
   // Load initial data
-  const loadData = async (page = 1, silent = false) => {
+  const loadData = async (page = 1, silent = false, filterOverride = null) => {
     if (!silent) setLoading(true);
     setError(null);
+    const activeFilters = filterOverride || filters;
 
     try {
       // 1. Today's attendance
@@ -64,19 +65,18 @@ const AttendanceDashboard = () => {
         setHasActiveBreak(!!activeBreak);
       }
 
-      // 2. Attendance list
-      const params = {
-        page,
-        per_page: 20,
-        ...(filters.user_id && { user_id: filters.user_id }),
-        ...(filters.month && { month: filters.month }),
-      };
+      // 2. Attendance list — apiRequest does not read `params`; build query string.
+      const search = new URLSearchParams();
+      search.set('page', String(page));
+      search.set('per_page', '20');
+      if (activeFilters.user_id) search.set('user_id', String(activeFilters.user_id));
+      if (activeFilters.month) search.set('month', String(activeFilters.month));
 
-      const listRes = await apiRequest('/attendance', { params });
+      const listRes = await apiRequest(`/attendance?${search.toString()}`);
       if (listRes?.status === 'success') {
         setAttendances(listRes.data || []);
         setPagination({
-          current_page: listRes.meta?.current_page || 1,
+          current_page: listRes.meta?.current_page || page,
           last_page: listRes.meta?.last_page || 1,
           per_page: listRes.meta?.per_page || 20,
           total: listRes.meta?.total || 0,
@@ -99,9 +99,20 @@ const AttendanceDashboard = () => {
 
   useEffect(() => {
     loadData();
-    // You might want to load current user here if not using context
-    // loadCurrentUser();
   }, []);
+
+  useEffect(() => {
+    const onAttendanceChanged = () => {
+      loadData(pagination.current_page || 1, true);
+    };
+    window.addEventListener('collabflow:attendance-changed', onAttendanceChanged);
+    return () => {
+      window.removeEventListener(
+        'collabflow:attendance-changed',
+        onAttendanceChanged
+      );
+    };
+  }, [pagination.current_page]);
 
   useEffect(() => {
     syncElectronBreakState(hasActiveBreak);
@@ -119,11 +130,13 @@ const AttendanceDashboard = () => {
   };
 
   const resetFilters = () => {
-    setFilters({
+    const next = {
       user_id: '',
       month: new Date().toISOString().slice(0, 7),
-    });
-    loadData(1);
+    };
+    setFilters(next);
+    // Pass filters explicitly — setState is async so loadData would see stale values.
+    loadData(1, false, next);
   };
 
   const isCheckedIn =
@@ -152,6 +165,12 @@ const AttendanceDashboard = () => {
         );
         await loadData(pagination.current_page || 1, true);
         syncElectronBreakState(isStarting, { force: !isStarting });
+        refreshAttendanceScreenshots();
+        window.dispatchEvent(
+          new CustomEvent('collabflow:attendance-changed', {
+            detail: { source: 'manual-break', active: isStarting },
+          })
+        );
       } else {
         throw new Error(res?.message || 'Break action failed');
       }
@@ -171,6 +190,11 @@ const AttendanceDashboard = () => {
       toast.success('Checked out successfully');
       await loadData(pagination.current_page || 1, true);
       refreshAttendanceScreenshots();
+      window.dispatchEvent(
+        new CustomEvent('collabflow:attendance-changed', {
+          detail: { source: 'check-out', active: false },
+        })
+      );
     } catch (err) {
       toast.error(err?.message || 'Check-out failed');
     } finally {
@@ -184,6 +208,11 @@ const AttendanceDashboard = () => {
       toast.success('Checked in successfully');
       await loadData(pagination.current_page || 1, true);
       refreshAttendanceScreenshots();
+      window.dispatchEvent(
+        new CustomEvent('collabflow:attendance-changed', {
+          detail: { source: 'check-in', active: false },
+        })
+      );
     } catch (err) {
       toast.error(err?.message || 'Check-in failed');
     }

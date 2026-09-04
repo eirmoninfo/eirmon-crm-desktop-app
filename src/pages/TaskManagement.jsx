@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   DndContext,
   DragOverlay,
@@ -191,17 +191,35 @@ function isOverdue(d) {
   return end < today;
 }
 
-function initialsFromTask(task) {
-  const name =
-    task.assignee?.name ??
-    task.assignee_name ??
-    task.user?.name ??
-    task.assigned_to?.name ??
-    "";
+function initialsFromName(name) {
   if (!name || typeof name !== "string") return "—";
   const p = name.trim().split(/\s+/);
   if (p.length >= 2) return (p[0][0] + p[p.length - 1][0]).toUpperCase();
   return p[0].slice(0, 2).toUpperCase();
+}
+
+function assigneeNameFromTask(task) {
+  return (
+    task?.assignee?.name ??
+    task?.assignee_name ??
+    task?.user?.name ??
+    task?.assigned_to?.name ??
+    ""
+  );
+}
+
+function assignedByNameFromTask(task) {
+  return (
+    task?.assigned_by?.name ??
+    task?.creator?.name ??
+    task?.created_by_name ??
+    task?.assigned_by_name ??
+    ""
+  );
+}
+
+function initialsFromTask(task) {
+  return initialsFromName(assigneeNameFromTask(task));
 }
 
 function priorityLabel(task) {
@@ -244,6 +262,27 @@ function KanbanTaskCardBody({ task }) {
       <h3 className="text-sm font-semibold leading-snug theme-text">
         {task.title || "Untitled task"}
       </h3>
+      {(assignedByNameFromTask(task) || assigneeNameFromTask(task)) && (
+        <p className="mt-1.5 text-[11px] leading-relaxed text-glass-muted">
+          {assigneeNameFromTask(task) ? (
+            <>
+              Assigned to{" "}
+              <span className="font-medium text-[var(--theme-text)]">
+                {assigneeNameFromTask(task)}
+              </span>
+            </>
+          ) : null}
+          {assignedByNameFromTask(task) ? (
+            <>
+              {assigneeNameFromTask(task) ? " · " : ""}
+              by{" "}
+              <span className="font-medium text-[var(--theme-text)]">
+                {assignedByNameFromTask(task)}
+              </span>
+            </>
+          ) : null}
+        </p>
+      )}
       {(task.description || task.project?.title) && (
         <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-glass-muted">
           {task.description || task.project?.title || ""}
@@ -431,6 +470,7 @@ function KanbanBoardColumn({ col, tasks, onAdd, onTaskClick }) {
 
 export default function TaskManagement() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [user, setUser] = useState(null);
   const [masterTasks, setMasterTasks] = useState([]);
   const [meta, setMeta] = useState({
@@ -471,8 +511,18 @@ export default function TaskManagement() {
     if (filterTab === "my" && currentUserId != null) {
       const uid = Number(currentUserId);
       list = list.filter((t) => {
-        const aid = t.assignee_id ?? t.user_id ?? t.assigned_to_id;
-        return aid != null && Number(aid) === uid;
+        const aid =
+          t.assignee?.id ??
+          t.assignee_id ??
+          t.user_id ??
+          t.assigned_to_id ??
+          t.assigned_to;
+        const created =
+          t.created_by ?? t.creator?.id ?? t.assigned_by?.id;
+        return (
+          (aid != null && Number(aid) === uid) ||
+          (created != null && Number(created) === uid)
+        );
       });
     }
 
@@ -693,20 +743,75 @@ export default function TaskManagement() {
   }, [loadTodayAttendance]);
 
   useEffect(() => {
-    const onTaskAssigned = (event) => {
-      const task = event?.detail?.task;
-      if (!task?.id) return;
+    const raw = searchParams.get("task");
+    if (!raw) return;
+    const id = Number(raw);
+    if (Number.isFinite(id) && id > 0) {
+      setDetailTaskId(id);
+    }
+  }, [searchParams]);
 
+  const openTask = useCallback(
+    (id) => {
+      if (id == null) return;
+      setDetailTaskId(id);
+      const next = new URLSearchParams(searchParams);
+      next.set("task", String(id));
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
+
+  const closeTask = useCallback(() => {
+    setDetailTaskId(null);
+    const next = new URLSearchParams(searchParams);
+    next.delete("task");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    const upsertTask = (task, bump) => {
+      if (!task?.id) return;
       setMasterTasks((prev) => {
-        if (prev.some((t) => t.id === task.id)) return prev;
-        const col = normalizeColumn(task);
-        return [...prev, { ...task, status: COLUMN_TO_API[col] }];
+        const idx = prev.findIndex((t) => idsEqual(t.id, task.id));
+        const existing = idx >= 0 ? prev[idx] : {};
+        const col = normalizeColumn({ ...existing, ...task });
+        const extras = {};
+        if (bump === "comment") {
+          extras.comments_count = (existing.comments_count ?? 0) + 1;
+        }
+        if (bump === "attachment") {
+          extras.attachments_count = (existing.attachments_count ?? 0) + 1;
+        }
+        const nextTask = {
+          ...existing,
+          ...task,
+          ...extras,
+          status: COLUMN_TO_API[col] || task.status || existing.status,
+        };
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = nextTask;
+          return copy;
+        }
+        return [...prev, nextTask];
       });
     };
 
+    const onTaskAssigned = (event) => upsertTask(event?.detail?.task);
+    const onTaskUpdated = (event) => upsertTask(event?.detail?.task);
+    const onTaskActivity = (event) => {
+      const task = event?.detail?.task;
+      upsertTask(task, event?.detail?.type);
+    };
+
     window.addEventListener("collabflow:task-assigned", onTaskAssigned);
+    window.addEventListener("collabflow:task-updated", onTaskUpdated);
+    window.addEventListener("collabflow:task-activity", onTaskActivity);
     return () => {
       window.removeEventListener("collabflow:task-assigned", onTaskAssigned);
+      window.removeEventListener("collabflow:task-updated", onTaskUpdated);
+      window.removeEventListener("collabflow:task-activity", onTaskActivity);
     };
   }, []);
 
@@ -902,7 +1007,7 @@ export default function TaskManagement() {
       <TaskDetailDrawer
         taskId={detailTaskId}
         open={detailTaskId != null}
-        onClose={() => setDetailTaskId(null)}
+        onClose={closeTask}
         onTaskPatched={handleTaskPatched}
       />
 
@@ -1038,6 +1143,8 @@ export default function TaskManagement() {
                   <thead className="sticky top-0 bg-white/5 text-glass-muted border-b border-white/10">
                     <tr>
                       <th className="px-4 py-3 font-semibold">Task</th>
+                      <th className="px-4 py-3 font-semibold">Assigned to</th>
+                      <th className="px-4 py-3 font-semibold">Assigned by</th>
                       <th className="px-4 py-3 font-semibold">Status</th>
                       <th className="px-4 py-3 font-semibold">Priority</th>
                       <th className="px-4 py-3 font-semibold text-center">
@@ -1058,17 +1165,23 @@ export default function TaskManagement() {
                         key={task.id}
                         role="button"
                         tabIndex={0}
-                        onClick={() => setDetailTaskId(task.id)}
+                        onClick={() => openTask(task.id)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            setDetailTaskId(task.id);
+                            openTask(task.id);
                           }
                         }}
                         className="cursor-pointer hover:bg-white/5"
                       >
                         <td className="px-4 py-3 font-medium theme-text">
                           {task.title || "Untitled"}
+                        </td>
+                        <td className="px-4 py-3 text-glass-muted">
+                          {assigneeNameFromTask(task) || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-glass-muted">
+                          {assignedByNameFromTask(task) || "—"}
                         </td>
                         <td className="px-4 py-3 text-glass-muted capitalize">
                           {normalizeColumn(task).replace("_", " ")}
@@ -1121,7 +1234,7 @@ export default function TaskManagement() {
                         col={col}
                         tasks={columns[col.id]}
                         onAdd={addTaskPlaceholder}
-                        onTaskClick={(t) => setDetailTaskId(t.id)}
+                        onTaskClick={(t) => openTask(t.id)}
                       />
                     ))}
                   </div>

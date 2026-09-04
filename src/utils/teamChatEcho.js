@@ -5,38 +5,26 @@ let userSubscription = null;
 let globalChannelSubscriptions = [];
 
 const MESSAGE_EVENTS = [
-  ".TeamChatIncoming",
-  "TeamChatIncoming",
   ".MessageSent",
-  "MessageSent",
-  ".message.sent",
-  "message.sent",
-  ".message.created",
-  "message.created",
-  ".message.posted",
-  "message.posted",
-  ".team_chat_message_sent",
-  "team_chat_message_sent",
-  ".TeamChatMessageSent",
-  "TeamChatMessageSent",
+  ".TeamChatIncoming",
 ];
 
 const TYPING_EVENTS = [
   ".UserTyping",
-  "UserTyping",
-  ".user.typing",
-  "user.typing",
-  ".typing",
-  "typing",
 ];
 
 const REACTION_EVENTS = [
   ".MessageReactionUpdated",
-  "MessageReactionUpdated",
-  ".message.reaction.updated",
-  "message.reaction.updated",
-  ".reaction.updated",
-  "reaction.updated",
+];
+
+const READ_EVENTS = [
+  ".MessageRead",
+  "MessageRead",
+];
+
+const DELIVERED_EVENTS = [
+  ".MessageDelivered",
+  "MessageDelivered",
 ];
 
 const TASK_ASSIGNED_EVENTS = [
@@ -46,24 +34,65 @@ const TASK_ASSIGNED_EVENTS = [
   "TaskAssigned",
 ];
 
+const TASK_ACTIVITY_EVENTS = [
+  ".task.activity",
+  "task.activity",
+  ".TaskActivityNotified",
+  "TaskActivityNotified",
+];
+
+const TASK_UPDATED_EVENTS = [
+  ".task.updated",
+  "task.updated",
+  ".TaskUpdated",
+  "TaskUpdated",
+];
+
+const MEETING_CALL_EVENTS = [
+  ".MeetingCallIncoming",
+  "MeetingCallIncoming",
+];
+
 function bindEvents(channel, handlers) {
   const bindings = [];
+  const recentMessageKeys = new Set();
+
+  const wrapMessageHandler = (handler) => (payload) => {
+    const message =
+      payload?.message ??
+      payload?.data?.message ??
+      payload?.data ??
+      payload;
+    const key =
+      message?.id != null
+        ? String(message.id)
+        : message?.message_id != null
+          ? String(message.message_id)
+          : null;
+
+    if (key) {
+      if (recentMessageKeys.has(key)) return;
+      recentMessageKeys.add(key);
+      if (recentMessageKeys.size > 300) {
+        for (const existing of [...recentMessageKeys].slice(0, 150)) {
+          recentMessageKeys.delete(existing);
+        }
+      }
+    }
+
+    handler(payload);
+  };
+
   if (handlers.onMessage) {
+    const onMessage = wrapMessageHandler(handlers.onMessage);
     for (const ev of MESSAGE_EVENTS) {
-      const callback = (e) => {
-        console.log(`[TeamChat] Incoming event:${ev}`, e);
-        handlers.onMessage(e);
-      };
-      channel.listen(ev, callback);
-      bindings.push([ev, callback]);
+      channel.listen(ev, onMessage);
+      bindings.push([ev, onMessage]);
     }
   }
   if (handlers.onTyping) {
     for (const ev of TYPING_EVENTS) {
-      const callback = (e) => {
-        console.log(`[TeamChat] Typing event:${ev}`, e);
-        handlers.onTyping(e);
-      };
+      const callback = (e) => handlers.onTyping(e);
       channel.listen(ev, callback);
       bindings.push([ev, callback]);
     }
@@ -75,9 +104,44 @@ function bindEvents(channel, handlers) {
       bindings.push([ev, callback]);
     }
   }
+  if (handlers.onMessageRead) {
+    for (const ev of READ_EVENTS) {
+      const callback = (payload) => handlers.onMessageRead(payload);
+      channel.listen(ev, callback);
+      bindings.push([ev, callback]);
+    }
+  }
+  if (handlers.onMessageDelivered) {
+    for (const ev of DELIVERED_EVENTS) {
+      const callback = (payload) => handlers.onMessageDelivered(payload);
+      channel.listen(ev, callback);
+      bindings.push([ev, callback]);
+    }
+  }
   if (handlers.onTaskAssigned) {
     for (const ev of TASK_ASSIGNED_EVENTS) {
       const callback = (payload) => handlers.onTaskAssigned(payload);
+      channel.listen(ev, callback);
+      bindings.push([ev, callback]);
+    }
+  }
+  if (handlers.onTaskActivity) {
+    for (const ev of TASK_ACTIVITY_EVENTS) {
+      const callback = (payload) => handlers.onTaskActivity(payload);
+      channel.listen(ev, callback);
+      bindings.push([ev, callback]);
+    }
+  }
+  if (handlers.onTaskUpdated) {
+    for (const ev of TASK_UPDATED_EVENTS) {
+      const callback = (payload) => handlers.onTaskUpdated(payload);
+      channel.listen(ev, callback);
+      bindings.push([ev, callback]);
+    }
+  }
+  if (handlers.onMeetingCallIncoming) {
+    for (const ev of MEETING_CALL_EVENTS) {
+      const callback = (payload) => handlers.onMeetingCallIncoming(payload);
       channel.listen(ev, callback);
       bindings.push([ev, callback]);
     }
@@ -126,6 +190,9 @@ export function subscribeTeamChatGlobalChannels(channelIds, handlers = {}) {
       const channel = echo.join(channelName);
       const bindings = bindEvents(channel, {
         onMessage: (payload) => handlers.onMessage?.(payload, channelId),
+        onMessageRead: (payload) => handlers.onMessageRead?.(payload, channelId),
+        onMessageDelivered: (payload) =>
+          handlers.onMessageDelivered?.(payload, channelId),
       });
       return { channel, channelName, bindings };
     });

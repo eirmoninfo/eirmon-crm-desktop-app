@@ -1,7 +1,9 @@
-import { getToken } from "./storage";
+import { getStoredUser, getToken } from "./storage";
 import { apiRequest } from "../api/http";
 import { startScreenshotLoop, stopScreenshotLoop } from "./startScreenshotLoop";
+import { shouldCaptureScreenshots } from "./permissions";
 import { unwrapApiBody } from "./unwrapApiBody";
+import { fetchWorkSessionState } from "./workSessionGate";
 
 let pollTimer = null;
 let authToken = null;
@@ -10,19 +12,17 @@ let screenshotCfg = {};
 let loopActive = false;
 let listenersAttached = false;
 
-/** How often we re-check punch state so screenshots start soon after check-in */
+/** How often we re-check punch/break state so screenshots start/stop quickly */
 const POLL_MS = 15_000;
-
-function isPunchedIn(att) {
-  if (!att || typeof att !== "object") return false;
-  const inAt = att.check_in;
-  const outAt = att.check_out;
-  return inAt != null && inAt !== "" && (outAt == null || outAt === "");
-}
 
 async function tick() {
   const token = authToken || getToken();
   if (!token || typeof window === "undefined" || !window.api?.takeScreenshot) {
+    return;
+  }
+
+  if (!shouldCaptureScreenshots(getStoredUser(), screenshotCfg)) {
+    stopCapture("admin or screenshot capture disabled");
     return;
   }
 
@@ -32,12 +32,15 @@ async function tick() {
   }
 
   try {
-    const res = await apiRequest("/attendance/today");
-    const att = unwrapApiBody(res);
+    const session = await fetchWorkSessionState();
 
-    const punched = isPunchedIn(att);
-    if (!punched) {
+    if (!session.punchedIn) {
       stopCapture("punched out or not clocked in");
+      return;
+    }
+
+    if (session.onBreak) {
+      stopCapture("on break");
       return;
     }
 
@@ -47,7 +50,7 @@ async function tick() {
     });
     const heartbeatData = unwrapApiBody(heartbeat) ?? {};
     const enable =
-      att.screenshot_capture_enabled !== false &&
+      session.attendance?.screenshot_capture_enabled !== false &&
       heartbeatData.screenshot_capture_enabled !== false;
 
     if (enable) {
@@ -57,7 +60,7 @@ async function tick() {
           enable_screenshots: true,
         });
         loopActive = true;
-        console.log("[Tracker] Screenshots active (online and punched in)");
+        console.log("[Tracker] Screenshots active (online, punched in, not on break)");
       }
     } else {
       stopCapture("disabled by admin");
@@ -83,9 +86,12 @@ function handleOnline() {
   tick();
 }
 
+function handleAttendanceChanged() {
+  tick();
+}
+
 /**
- * Poll attendance and only run the screenshot upload loop while user is punched in.
- * Call from Electron bootstrap after login (replaces starting screenshots unconditionally).
+ * Poll attendance and only run the screenshot upload loop while punched in and not on break.
  */
 export function startAttendanceScreenshotSync(token, config = {}) {
   stopAttendanceScreenshotSync();
@@ -95,6 +101,7 @@ export function startAttendanceScreenshotSync(token, config = {}) {
   if (!listenersAttached && typeof window !== "undefined") {
     window.addEventListener("offline", handleOffline);
     window.addEventListener("online", handleOnline);
+    window.addEventListener("collabflow:attendance-changed", handleAttendanceChanged);
     listenersAttached = true;
   }
 
@@ -114,12 +121,16 @@ export function stopAttendanceScreenshotSync() {
   if (listenersAttached && typeof window !== "undefined") {
     window.removeEventListener("offline", handleOffline);
     window.removeEventListener("online", handleOnline);
+    window.removeEventListener(
+      "collabflow:attendance-changed",
+      handleAttendanceChanged
+    );
     listenersAttached = false;
   }
 }
 
 /**
- * Run after check-in / check-out so screenshots start or stop without waiting for the poll.
+ * Run after check-in / check-out / break so screenshots start or stop without waiting for the poll.
  */
 export function refreshAttendanceScreenshots() {
   return tick();

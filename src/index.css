@@ -512,6 +512,16 @@
   --theme-glow-a: rgb(10 132 255 / 0.07);
   --theme-glow-b: rgb(94 92 230 / 0.06);
   --theme-stat-bg: rgb(255 255 255 / 0.06);
+  --theme-production-from: #fff4e6;
+  --theme-production-mid: #ffb84d;
+  --theme-production-to: #d97706;
+  --theme-production-gradient: linear-gradient(90deg, #ffc866 0%, #ffab40 48%, #e8940a 100%);
+  --theme-production-text: linear-gradient(180deg, #fffaf3 0%, #ffd699 38%, #ffab40 100%);
+  --theme-production-glow: rgb(255 171 64 / 0.28);
+  --theme-production-border: rgb(255 171 64 / 0.2);
+  --theme-production-bg: linear-gradient(145deg, rgb(255 171 64 / 0.11) 0%, rgb(255 255 255 / 0.03) 100%);
+  --theme-production-icon: #ffc56d;
+  --theme-production-live: rgb(255 204 140 / 0.82);
   --theme-toggle-bg: rgb(255 255 255 / 0.06);
   --theme-toggle-border: rgb(255 255 255 / 0.1);
   --theme-table-wrap-bg: rgb(255 255 255 / 0.05);
@@ -665,11 +675,6 @@
     background: var(--theme-glow-b);
   }
 
-  .app-shell-backdrop {
-    @apply fixed inset-0 z-40 border-0 backdrop-blur-sm;
-    background: var(--theme-backdrop);
-  }
-
   .app-shell-main {
     @apply relative z-10 flex min-h-0 min-w-0 flex-1 flex-col pl-0 lg:pl-[92px];
   }
@@ -821,22 +826,98 @@
   .glass-sidebar {
     @apply fixed left-3 top-3 bottom-3 z-50 flex flex-col overflow-hidden;
     width: 72px;
-    backdrop-filter: blur(30px);
-    -webkit-backdrop-filter: blur(30px);
-    background: var(--theme-glass);
+    backdrop-filter: blur(48px) saturate(1.65);
+    -webkit-backdrop-filter: blur(48px) saturate(1.65);
+    background: color-mix(in srgb, var(--theme-glass) 92%, #0a0a0a 40%);
     border: 1px solid var(--theme-glass-border);
-    box-shadow: 0 20px 60px rgb(0 0 0 / 0.35);
+    box-shadow: 0 20px 60px rgb(0 0 0 / 0.45);
     border-radius: 28px;
     transition: width 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    isolation: isolate;
+  }
+
+  [data-theme="dark"] .glass-sidebar {
+    background: linear-gradient(
+      180deg,
+      rgb(22 22 26 / 0.97) 0%,
+      rgb(14 14 17 / 0.98) 100%
+    );
+    backdrop-filter: blur(56px) saturate(1.8);
+    -webkit-backdrop-filter: blur(56px) saturate(1.8);
+    box-shadow:
+      0 24px 64px rgb(0 0 0 / 0.62),
+      inset 0 1px 0 rgb(255 255 255 / 0.08);
+  }
+
+  [data-theme="dark"] .glass-sidebar::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: rgb(16 16 20 / 0.72);
+    backdrop-filter: blur(48px) saturate(1.6);
+    -webkit-backdrop-filter: blur(48px) saturate(1.6);
+    pointer-events: none;
   }
 
   .glass-sidebar-expanded {
     width: 248px;
+    background: color-mix(in srgb, var(--app-bg, #0a0a0a) 78%, transparent);
+    backdrop-filter: blur(48px) saturate(1.5);
+    -webkit-backdrop-filter: blur(48px) saturate(1.5);
+    box-shadow:
+      0 24px 64px rgb(0 0 0 / 0.55),
+      inset 0 1px 0 rgb(255 255 255 / 0.06);
+  }
+
+  [data-theme="dark"] .glass-sidebar-expanded {
+    background: linear-gradient(
+      180deg,
+      rgb(20 20 24 / 0.98) 0%,
+      rgb(12 12 15 / 0.99) 100%
+    );
+    backdrop-filter: blur(64px) saturate(1.85);
+    -webkit-backdrop-filter: blur(64px) saturate(1.85);
+    box-shadow:
+      0 28px 72px rgb(0 0 0 / 0.7),
+      inset 0 1px 0 rgb(255 255 255 / 0.1);
+  }
+
+  [data-theme="light"] .glass-sidebar {
+    background: color-mix(in srgb, #ffffff 88%, transparent);
+  }
+
+  [data-theme="light"] .glass-sidebar-expanded {
+    background: color-mix(in srgb, #ffffff 94%, transparent);
   }
 
   .glass-sidebar-mobile-open {
     @apply left-3;
     width: min(280px, calc(100vw - 24px));
+  }
+
+  [data-theme="dark"] .glass-sidebar-mobile-open {
+    background: linear-gradient(
+      180deg,
+      rgb(20 20 24 / 0.98) 0%,
+      rgb(12 12 15 / 0.99) 100%
+    );
+    backdrop-filter: blur(64px) saturate(1.85);
+    -webkit-backdrop-filter: blur(64px) saturate(1.85);
+  }
+
+  .app-shell-backdrop {
+    @apply fixed inset-0 z-40 border-0;
+    background: rgb(0 0 0 / 0.55);
+    backdrop-filter: blur(10px) saturate(1.2);
+    -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  }
+
+  [data-theme="dark"] .app-shell-backdrop {
+    background: rgb(0 0 0 / 0.62);
+    backdrop-filter: blur(16px) saturate(1.3);
+    -webkit-backdrop-filter: blur(16px) saturate(1.3);
   }
 
   @media (max-width: 1023px) {
@@ -1098,14 +1179,16 @@
   /* ─── Modals ─── */
   .glass-modal-backdrop {
     @apply fixed inset-0 z-[200] flex items-end justify-center p-4 sm:items-center;
-    background: rgb(0 0 0 / 0.55);
-    backdrop-filter: blur(8px);
+    background: rgb(0 0 0 / 0.62);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
   }
 
   .glass-modal {
   @apply relative z-[201] flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden;
-    backdrop-filter: blur(30px);
-    background: var(--theme-modal-bg);
+    backdrop-filter: blur(40px) saturate(1.3);
+    -webkit-backdrop-filter: blur(40px) saturate(1.3);
+    background: color-mix(in srgb, var(--theme-modal-bg) 92%, transparent);
     border: 1px solid var(--theme-glass-border);
     box-shadow: var(--theme-shadow);
     border-radius: 32px;
@@ -1126,6 +1209,17 @@
     stroke-linecap: round;
     transition: stroke-dashoffset 0.8s cubic-bezier(0.22, 1, 0.36, 1);
     filter: drop-shadow(0 0 8px rgb(10 132 255 / 0.5));
+  }
+
+  .progress-ring-fill-orange {
+    stroke: url(#ringGradientOrange);
+    filter: drop-shadow(0 0 10px rgb(255 184 77 / 0.38));
+    transition: stroke-dashoffset 0.35s ease-out;
+  }
+
+  .progress-ring-label-production {
+    color: #fffaf3;
+    text-shadow: 0 0 20px rgb(255 171 64 / 0.35);
   }
 
   /* ─── Status badges ─── */
@@ -1163,6 +1257,36 @@
   .team-chat-sidebar {
     background: var(--theme-glass-sm);
     border-right: 1px solid var(--theme-glass-border);
+  }
+
+  .team-chat-call-btn {
+    display: inline-flex;
+    height: 2.25rem;
+    width: 2.25rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background: rgb(10 132 255 / 0.14);
+    color: #64d2ff !important;
+    box-shadow: inset 0 0 0 1px rgb(10 132 255 / 0.28);
+    transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  }
+
+  .team-chat-call-btn:hover:not(:disabled) {
+    background: rgb(10 132 255 / 0.24);
+    color: #ffffff !important;
+    transform: translateY(-1px);
+  }
+
+  .team-chat-call-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  [data-theme="light"] .team-chat-call-btn {
+    background: rgb(10 132 255 / 0.1);
+    color: #0066d6 !important;
+    box-shadow: inset 0 0 0 1px rgb(10 132 255 / 0.22);
   }
 
   .team-chat-thread-header {
@@ -1383,12 +1507,50 @@
     box-shadow: 0 8px 24px rgb(10 132 255 / 0.25);
   }
 
+  .team-chat-bubble-mine .team-chat-read-receipt {
+    flex-shrink: 0;
+  }
+
   .team-chat-bubble-theirs {
     @apply rounded-2xl rounded-bl-md px-4 py-2.5;
     background: var(--theme-glass);
     border: 1px solid var(--theme-glass-border);
     color: var(--theme-text);
     backdrop-filter: blur(16px);
+  }
+
+  .team-chat-read-receipt {
+    @apply inline-flex items-center leading-none;
+    margin-left: 2px;
+  }
+
+  .team-chat-tick-double {
+    position: relative;
+    display: inline-block;
+    width: 16px;
+    height: 11px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .team-chat-tick {
+    color: rgba(255, 255, 255, 0.72);
+  }
+
+  .team-chat-tick--a {
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+
+  .team-chat-tick--b {
+    position: absolute;
+    left: 5px;
+    top: 0;
+  }
+
+  .team-chat-read-receipt--read .team-chat-tick {
+    color: #93c5fd;
   }
 
   .team-chat-composer {
@@ -1419,6 +1581,70 @@
 
   [data-theme="light"] .team-chat-page .hover\:bg-white\/10:hover {
     background: var(--theme-hover-strong);
+  }
+
+  /* Forward message modal — always light, independent of app theme */
+  .forward-message-modal {
+    color: #0f172a;
+    color-scheme: light;
+  }
+
+  .forward-message-search {
+    color: #0f172a !important;
+  }
+
+  .forward-message-search::placeholder {
+    color: #64748b !important;
+  }
+
+  .forward-message-row {
+    color: #0f172a !important;
+  }
+
+  .forward-message-row-default:hover {
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgb(15 23 42 / 0.08);
+  }
+
+  .forward-message-row-selected {
+    background: #dbeafe !important;
+    box-shadow: inset 0 0 0 2px #2563eb;
+  }
+
+  .forward-message-row-title {
+    color: #0f172a !important;
+  }
+
+  .forward-message-row-preview {
+    color: #64748b !important;
+  }
+
+  .forward-message-check-default {
+    border: 2px solid #94a3b8;
+    background: #ffffff;
+  }
+
+  .forward-message-check-selected {
+    border: 2px solid #1d4ed8;
+    background: #2563eb;
+    color: #ffffff !important;
+  }
+
+  .forward-message-submit {
+    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  }
+
+  .forward-message-submit:hover:not(:disabled) {
+    background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+  }
+
+  .team-chat-image-download {
+    color: #ffffff !important;
+  }
+
+  .team-chat-image-wrap:hover .team-chat-image-download,
+  .team-chat-image-download:focus-visible {
+    opacity: 1;
   }
 
   .team-chat-typing-dot:nth-child(2) {
@@ -1519,6 +1745,59 @@
   .stat-widget-value {
     @apply text-3xl font-semibold tabular-nums tracking-tight;
     color: var(--theme-text);
+  }
+
+  .stat-widget-production {
+    background: var(--theme-production-bg);
+    border-color: var(--theme-production-border);
+    box-shadow:
+      0 0 0 1px rgb(255 171 64 / 0.05),
+      0 16px 48px rgb(255 140 0 / 0.07);
+  }
+
+  .stat-widget-value-production {
+    background: var(--theme-production-text);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 2px 12px rgb(255 171 64 / 0.22));
+  }
+
+  .stat-widget-icon-production {
+    color: var(--theme-production-icon);
+    filter: drop-shadow(0 0 8px rgb(255 171 64 / 0.25));
+  }
+
+  .stat-live-indicator {
+    @apply inline-flex items-center gap-1.5 text-xs font-medium;
+    color: var(--theme-production-live);
+  }
+
+  .stat-live-indicator::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: #30d158;
+    box-shadow: 0 0 10px rgb(48 209 88 / 0.55);
+    animation: stat-live-pulse 1.8s ease-in-out infinite;
+  }
+
+  @keyframes stat-live-pulse {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.65;
+      transform: scale(0.88);
+    }
+  }
+
+  .production-progress-fill {
+    background: var(--theme-production-gradient);
+    box-shadow: 0 0 14px var(--theme-production-glow);
   }
 
   /* ─── Text utilities for dark theme ─── */
