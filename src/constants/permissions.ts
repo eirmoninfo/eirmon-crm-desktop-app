@@ -33,6 +33,9 @@ export const P = {
   MANAGE_TEAM_CHAT: 'manage team chat',
   USE_EIRMON_AI: 'use eirmon ai',
   USE_AI_MARKETING_ASSISTANT: 'use ai marketing assistant',
+  VIEW_LEADS: 'view leads',
+  CREATE_LEADS: 'create leads',
+  EDIT_LEADS: 'edit leads',
 } as const;
 
 export type Permission = (typeof P)[keyof typeof P];

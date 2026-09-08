@@ -110,6 +110,18 @@ declare global {
       };
     }>;
     'collabflow:notification-added': CustomEvent<CollabflowNotification>;
+    'collabflow:admin-notification': CustomEvent<{
+      notification?: {
+        id?: string | number;
+        title?: string;
+        message?: string;
+        type?: string;
+        category?: string;
+        is_silent?: boolean;
+        data?: Record<string, unknown>;
+        desktop_route?: string;
+      };
+    }>;
     'collabflow:team-chat-unread': CustomEvent<{ total: number }>;
     'collabflow:session-authenticated': CustomEvent<unknown>;
     'collabflow:session-logged-out': CustomEvent<unknown>;

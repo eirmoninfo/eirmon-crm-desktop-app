@@ -18,6 +18,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   X,
+  Target,
 } from "lucide-react";
 import EirmonLogo from "./EirmonLogo";
 import { getCurrentUser } from "../api/auth.api";
@@ -52,6 +53,7 @@ const ICONS = {
   leave: CalendarDays,
   chat: MessageSquare,
   meetings: Video,
+  leads: Target,
   ai: null,
   expenses: Wallet,
   budgets: BarChart3,
@@ -113,7 +115,8 @@ export default function Sidebar({
   const isActive = (path) =>
     location.pathname === path ||
     (path === "/team-chat" && location.pathname.startsWith("/team-chat")) ||
-    (path === "/eirmon-ai" && location.pathname.startsWith("/eirmon-ai"));
+    (path === "/eirmon-ai" && location.pathname.startsWith("/eirmon-ai")) ||
+    (path === "/leads" && location.pathname.startsWith("/leads"));
 
   const isChildActive = (paths) =>
     paths.some((p) => location.pathname.startsWith(p));
@@ -164,6 +167,12 @@ export default function Sidebar({
         iconKey: "meetings",
         href: "/meetings",
         anyOf: [],
+      },
+      {
+        name: "Leads",
+        iconKey: "leads",
+        href: "/leads",
+        anyOf: [P.VIEW_LEADS, P.CREATE_LEADS, P.EDIT_LEADS],
       },
       {
         name: "AI Assistant",

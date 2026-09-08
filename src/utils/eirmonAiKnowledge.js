@@ -137,6 +137,33 @@ Open **Leave** to request time off.`,
 Open **Workspace Notes** to write.`,
   },
   {
+    id: "leads",
+    title: "Leads & pipeline",
+    icon: "🎯",
+    route: "/leads",
+    keywords: [
+      "lead",
+      "leads",
+      "pipeline",
+      "prospect",
+      "follow up",
+      "follow-up",
+      "hot lead",
+      "overdue lead",
+      "crm lead",
+    ],
+    summary: "Lead list, follow-ups, temperature, and AI analyze / email.",
+    answer: `**Leads & pipeline**
+
+• Open **Leads** from the sidebar for the same CRM pipeline as the web app.
+• Filter **Hot**, **Overdue**, **Follow-up today**, or **AI suggested**.
+• Open a lead drawer to change **stage**, **temperature**, and **next follow-up**.
+• Use **AI prompts** on a lead: suggest next action, analyze, or draft/send follow-up email.
+• Or ask **Eirmon AI**: "Show hot leads", "Create a new lead", "Analyze lead Sandeep", "Draft follow-up email for Gapsted".
+
+Open **Leads** to manage your pipeline.`,
+  },
+  {
     id: "desktop",
     title: "Desktop app tips",
     icon: "🖥️",
@@ -158,6 +185,7 @@ Open **Workspace Notes** to write.`,
 • **Screenshots** — captured while you're punched in (per company tracker settings).
 • **Idle monitoring** — long idle time may trigger break handling per your org policy.
 • **Motivation notifications** — check-in may trigger encouraging messages.
+• **Reminder push** — lead follow-ups due today, task assign/due, and chat get OS toasts while the app is open (bell menu has quick prompts).
 • **App updates** — packaged builds check for updates automatically; use **Check for updates** on the Dashboard.
 • **Team chat & tasks** work the same as in the browser, optimized for desktop.
 
@@ -169,6 +197,11 @@ export const EIRMON_AI_QUICK_PROMPTS = [
   "Check me in",
   "Show my attendance for today",
   "Show my tasks",
+  "What needs my attention today?",
+  "Show follow-ups due today",
+  "Show overdue leads",
+  "Show hot leads",
+  "Create a new lead",
   "What happens when I close the app?",
   "Show this month's attendance report",
 ];
@@ -182,5 +215,6 @@ export const ROUTE_HINTS = {
   "/expense": "You're on Expenses — create or review expense claims.",
   "/budgets": "You're on Budgets — manage budget allocations.",
   "/rough-work": "You're on Workspace Notes — jot down ideas here.",
+  "/leads": "You're on Leads — filter the pipeline or use AI prompts to analyze / draft follow-ups.",
   "/eirmon-ai": "You're chatting with Eirmon AI — ask anything about the app!",
 };

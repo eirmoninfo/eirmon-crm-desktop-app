@@ -160,13 +160,13 @@ export function buildMotivationRequestBody({
     extras.productivity_score ??
     att.productivity_score ??
     att.productivity ??
-    75;
+    null; // server will compute real score — do not default everyone to 75
 
   const merged = {
     employee_name: readEmployeeName(),
     early_minutes: clampEarlyMinutes(earlyRaw),
     streak_days: clampStreakDays(streakSrc),
-    productivity_score: clampProductivityScore(scoreSrc),
+    productivity_score: scoreSrc == null ? 0 : clampProductivityScore(scoreSrc),
     day_of_week: formatDayOfWeekEnglish(punch),
     ...extras,
   };

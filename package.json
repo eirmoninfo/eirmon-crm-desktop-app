@@ -1,7 +1,7 @@
 {
   "name": "eirmon-crm",
   "private": true,
-  "version": "0.2.15",
+  "version": "0.2.16",
   "description": "Eirmon CRM desktop application",
   "author": "Eirmon Solutions <support@eirmonsolutions.com>",
   "repository": {
@@ -135,7 +135,7 @@
         "NSLocationWhenInUseUsageDescription": "Eirmon CRM uses your location to show local weather in the header.",
         "NSCameraUsageDescription": "Eirmon One uses your camera for video meetings.",
         "NSMicrophoneUsageDescription": "Eirmon One uses your microphone for video meetings.",
-        "NSScreenCaptureUsageDescription": "Eirmon One shares a selected display only after you approve an administrator's live-screen request."
+        "NSScreenCaptureUsageDescription": "Eirmon One captures your screen for attendance monitoring while you are punched in, and for live-screen requests from administrators."
       }
     },
     "win": {

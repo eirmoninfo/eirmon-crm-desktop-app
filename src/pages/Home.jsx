@@ -2,17 +2,19 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
-  Clock,
-  CalendarDays,
-  ListTodo,
   Play,
   Coffee,
+  Cake,
+  Award,
+  Target,
+  ListTodo,
+  CalendarDays,
+  Wallet,
+  BarChart3,
+  Sparkles,
   ArrowUpRight,
-  Bell,
-  Activity,
 } from "lucide-react";
 import AppLayout from "../components/layout/AppLayout";
-import EirmonLogo from "../components/EirmonLogo";
 import { GlassCard, GlassButton } from "../components/glass/Glass";
 import ProgressRing from "../components/glass/ProgressRing";
 import { getCurrentUser } from "../api/auth.api";
@@ -38,43 +40,32 @@ import {
   formatTimeShort,
 } from "../utils/breakTime";
 import { markManualUpdateCheck } from "../components/AppUpdateOverlay";
+import PunchCelebration from "../components/PunchCelebration";
 
 const TARGET_DAY_HOURS = 8;
-const RECENT_TASKS_LIMIT = 5;
+const RECENT_TASKS_LIMIT = 4;
 
 function isTaskCompleted(status) {
   const s = String(status ?? "").toLowerCase();
   return s.includes("complete") || s.includes("done");
 }
 
-function taskStatusBadgeClass(status) {
-  const s = String(status ?? "pending").toLowerCase();
-  if (isTaskCompleted(s)) return "glass-badge-green";
-  if (s.includes("block")) return "glass-badge-red";
-  if (s.includes("review")) return "glass-badge-amber";
-  if (s.includes("progress")) return "glass-badge-blue";
-  return "glass-badge-amber";
+function breakDurationSeconds(b, nowMs = Date.now()) {
+  const s = breakStart(b);
+  if (!s) return null;
+  const startMs = new Date(s).getTime();
+  if (Number.isNaN(startMs)) return null;
+  const endRaw = breakEnd(b);
+  const endMs = endRaw ? new Date(endRaw).getTime() : nowMs;
+  if (Number.isNaN(endMs) || endMs < startMs) return null;
+  return Math.floor((endMs - startMs) / 1000);
 }
 
-function formatTaskStatus(status) {
-  return String(status ?? "pending")
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function sortTasksRecent(list) {
-  return [...list].sort((a, b) => {
-    const ta = new Date(a.updated_at || a.created_at || 0).getTime();
-    const tb = new Date(b.updated_at || b.created_at || 0).getTime();
-    return tb - ta;
-  });
-}
-
-function formatHours(hours) {
-  if (!hours) return "0h 0m";
-  const h = Math.floor(hours);
-  const m = Math.round((hours - h) * 60);
-  return `${h}h ${m}m`;
+function formatBreakRange(b) {
+  const s = breakStart(b);
+  const e = breakEnd(b);
+  if (!s) return null;
+  return `${formatTimeShort(s)} → ${e ? formatTimeShort(e) : "now"}`;
 }
 
 function formatTime(time) {
@@ -97,6 +88,32 @@ function formatLastPunch(time) {
   return `${label}, ${formatTime(time)}`;
 }
 
+function greetingForHour(hour) {
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+function firstName(user) {
+  const profile = user?.user ?? user ?? {};
+  const name = String(profile.name || "there").trim();
+  return name.split(/\s+/)[0] || "there";
+}
+
+function sortTasksRecent(list) {
+  return [...list].sort((a, b) => {
+    const ta = new Date(a.updated_at || a.created_at || 0).getTime();
+    const tb = new Date(b.updated_at || b.created_at || 0).getTime();
+    return tb - ta;
+  });
+}
+
+function formatTaskStatus(status) {
+  return String(status ?? "pending")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export default function Home() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -105,20 +122,21 @@ export default function Home() {
   const [isCheckedIn, setIsCheckedIn] = useState(false);
   const [isCheckedOut, setIsCheckedOut] = useState(false);
   const [onBreak, setOnBreak] = useState(false);
-  const [thisWeekHours] = useState("0h 0m");
-  const [pendingTasks, setPendingTasks] = useState(0);
-  const [recentTasks, setRecentTasks] = useState([]);
-  const [tasksLoading, setTasksLoading] = useState(true);
+  const [now, setNow] = useState(() => new Date());
   const [checkInTime, setCheckInTime] = useState(null);
   const [checkInAt, setCheckInAt] = useState(null);
   const [lastPunchOut, setLastPunchOut] = useState(null);
   const [workingHoursNum, setWorkingHoursNum] = useState(0);
   const [breaks, setBreaks] = useState([]);
   const [timeTick, setTimeTick] = useState(0);
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [updateHint, setUpdateHint] = useState("");
   const [checkOutConfirmOpen, setCheckOutConfirmOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [celebrations, setCelebrations] = useState({ today: [], upcoming: [] });
+  const [punchCelebration, setPunchCelebration] = useState(null);
+  const [pendingTasks, setPendingTasks] = useState(0);
+  const [recentTasks, setRecentTasks] = useState([]);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateHint, setUpdateHint] = useState("");
 
   const isLiveWorking = isCheckedIn && !isCheckedOut;
 
@@ -150,11 +168,23 @@ export default function Home() {
     return Math.min(100, Math.max(0, pct));
   }, [liveProductionHours]);
 
+  const celebrationItems = useMemo(
+    () => [...(celebrations.today || []), ...(celebrations.upcoming || [])].slice(0, 5),
+    [celebrations]
+  );
+
+  const breakClockMs = useMemo(() => Date.now(), [timeTick]);
+
   useEffect(() => {
     if (!isLiveWorking) return;
     const id = setInterval(() => setTimeTick((t) => t + 1), 1000);
     return () => clearInterval(id);
   }, [isLiveWorking]);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -199,6 +229,7 @@ export default function Home() {
           setCheckInTime(formatTime(att.check_in));
         } else {
           setCheckInAt(null);
+          setCheckInTime(null);
         }
 
         if (att.check_out) {
@@ -231,19 +262,29 @@ export default function Home() {
         setBreaks([]);
         setWorkingHoursNum(0);
         setCheckInAt(null);
+        setCheckInTime(null);
+      }
+
+      try {
+        const celebRes = await apiRequest("/team/celebrations?within_days=7");
+        const celebBody = unwrapApiBody(celebRes) ?? celebRes?.data ?? celebRes;
+        setCelebrations({
+          today: Array.isArray(celebBody?.today) ? celebBody.today : [],
+          upcoming: Array.isArray(celebBody?.upcoming) ? celebBody.upcoming : [],
+        });
+      } catch {
+        setCelebrations({ today: [], upcoming: [] });
       }
 
       try {
         const { list } = await fetchTasksPage(1, 30);
         const sorted = sortTasksRecent(list);
+        const open = sorted.filter((t) => !isTaskCompleted(t.status));
+        setPendingTasks(open.length);
         setRecentTasks(sorted.slice(0, RECENT_TASKS_LIMIT));
-        setPendingTasks(list.filter((t) => !isTaskCompleted(t.status)).length);
-      } catch (taskErr) {
-        console.error(taskErr);
-        setRecentTasks([]);
+      } catch {
         setPendingTasks(0);
-      } finally {
-        setTasksLoading(false);
+        setRecentTasks([]);
       }
     } catch (err) {
       console.error(err);
@@ -267,50 +308,6 @@ export default function Home() {
     };
   }, [loadDashboard]);
 
-  useEffect(() => {
-    const off = window.api?.onAppUpdaterEvent?.((event) => {
-      if (!event?.type) return;
-      if (event.type === "checking") {
-        setCheckingUpdate(true);
-        setUpdateHint("Checking for updates...");
-        return;
-      }
-      if (event.type === "available") {
-        setCheckingUpdate(false);
-        setUpdateHint(
-          event.downloadUrl
-            ? `Update v${event.version || ""} available — download the Mac DMG.`
-            : event.version
-              ? `Update found: v${event.version}`
-              : "Update found."
-        );
-        return;
-      }
-      if (event.type === "not-available") {
-        setCheckingUpdate(false);
-        setUpdateHint("You're on the latest version.");
-        return;
-      }
-      if (event.type === "disabled") {
-        setCheckingUpdate(false);
-        setUpdateHint("Update checks run in packaged app only.");
-        return;
-      }
-      if (event.type === "error") {
-        setCheckingUpdate(false);
-        setUpdateHint(
-          event.downloadUrl || /code signature|code requirement|ShipIt|did not pass validation|latest-mac\.yml/i.test(event.message || "")
-            ? "On Mac, download the latest DMG from GitHub Releases."
-            : event.message || "Update check failed."
-        );
-      }
-    });
-
-    return () => {
-      if (typeof off === "function") off();
-    };
-  }, []);
-
   const handleLogout = () => {
     logoutSession();
     navigate("/login");
@@ -319,10 +316,12 @@ export default function Home() {
   const handleCheckIn = async () => {
     const punchAt = new Date();
     try {
-      await apiRequest("/attendance/check-in", { method: "POST" });
+      const checkInRes = await apiRequest("/attendance/check-in", { method: "POST" });
       setIsCheckedIn(true);
+      setPunchCelebration("in");
       refreshAttendanceScreenshots();
-      requestMotivationAfterCheckIn({ punchAt, attendance: {} });
+      const att = unwrapApiBody(checkInRes) || checkInRes?.data || {};
+      requestMotivationAfterCheckIn({ punchAt, attendance: att });
       await loadDashboard();
     } catch (err) {
       toast.error(err?.message || "Check-in failed");
@@ -334,6 +333,7 @@ export default function Home() {
     try {
       await apiRequest("/attendance/check-out", { method: "POST" });
       setCheckOutConfirmOpen(false);
+      setPunchCelebration("out");
       await loadDashboard();
       refreshAttendanceScreenshots();
       window.dispatchEvent(
@@ -350,9 +350,7 @@ export default function Home() {
 
   const handleBreak = async () => {
     const ending = onBreak;
-    const endpoint = ending
-      ? "/attendance/break/end"
-      : "/attendance/break/start";
+    const endpoint = ending ? "/attendance/break/end" : "/attendance/break/start";
 
     await apiRequest(endpoint, { method: "POST" });
     await loadDashboard();
@@ -380,38 +378,58 @@ export default function Home() {
         return;
       }
       if (!res?.ok && res?.error) {
-        setUpdateHint(
-          res.downloadUrl || /code signature|code requirement|ShipIt|did not pass validation|latest-mac\.yml/i.test(res.error)
-            ? "On Mac, download the latest DMG from GitHub Releases."
-            : res.error
-        );
+        setUpdateHint(res.error);
       }
     } catch (err) {
-      setUpdateHint(
-        /code signature|code requirement|ShipIt|did not pass validation|latest-mac\.yml/i.test(err?.message || "")
-          ? "On Mac, download the latest DMG from GitHub Releases."
-          : err?.message || "Update check failed."
-      );
+      setUpdateHint(err?.message || "Update check failed.");
     } finally {
       setCheckingUpdate(false);
     }
   };
 
+  const greeting = greetingForHour(now.getHours());
+  const name = firstName(user);
+
   const statusLabel = !isCheckedIn
-    ? "Not punched in"
+    ? "Away"
     : isCheckedOut
       ? "Checked out"
       : onBreak
         ? "On break"
         : "Working";
+  const statusTone = !isCheckedIn
+    ? ""
+    : isCheckedOut
+      ? "dash-status-out"
+      : onBreak
+        ? "dash-status-break"
+        : "dash-status-working";
 
-  const statusClass = isCheckedOut
-    ? "glass-badge"
-    : onBreak
-      ? "glass-badge-amber"
-      : isCheckedIn
-        ? "glass-badge-blue"
-        : "glass-badge";
+  const suggestions = [
+    ...celebrationItems.slice(0, 1).map((item) => ({
+      id: `celeb-${item.type}-${item.user_id}`,
+      icon: item.type === "birthday" ? Cake : Award,
+      text: `${item.name} — ${item.label}${
+        item.is_today ? " today" : item.days_until != null ? ` in ${item.days_until}d` : ""
+      }`,
+    })),
+    {
+      id: "goal",
+      icon: Target,
+      text:
+        dayProgressPercent >= 100
+          ? "You've hit today's 8h goal"
+          : `You're ${dayProgressPercent}% toward today's 8h goal`,
+    },
+    {
+      id: "tasks",
+      icon: ListTodo,
+      text:
+        pendingTasks > 0
+          ? `${pendingTasks} open task${pendingTasks === 1 ? "" : "s"} need attention`
+          : "You're all caught up on tasks",
+    },
+  ];
 
   return (
     <AppLayout
@@ -419,8 +437,10 @@ export default function Home() {
       onLogout={handleLogout}
       loading={loading}
       loadingLabel="Loading Eirmon One…"
+      mainClassName="app-workspace-noscroll"
       showWorkdayBar={
         <WorkdayStatusBar
+          variant="compact"
           isCheckedIn={isCheckedIn}
           isCheckedOut={isCheckedOut}
           hasActiveBreak={onBreak}
@@ -428,315 +448,216 @@ export default function Home() {
         />
       }
     >
-      <div className="space-y-6">
-       
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <motion.div
-            className={`stat-widget ${isLiveWorking ? "stat-widget-production" : ""}`}
-            whileHover={{ y: -2 }}
-            transition={{ type: "spring", stiffness: 400, damping: 28 }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="stat-widget-label">
-                {isLiveWorking ? "Production time" : "Today's hours"}
-              </span>
-              <Clock
-                className={`h-4 w-4 ${isLiveWorking ? "stat-widget-icon-production" : "text-[#64d2ff]"}`}
-              />
-            </div>
-            <span
-              className={`stat-widget-value tabular-nums ${
-                isLiveWorking ? "stat-widget-value-production" : ""
-              }`}
-            >
-              {formatHours(liveProductionHours)}
-            </span>
-            {isLiveWorking && (
-              <p className="stat-live-indicator">
-                {onBreak ? "Paused on break" : "Live updating"}
-              </p>
-            )}
-          </motion.div>
-
-          <motion.div className="stat-widget" whileHover={{ y: -2 }}>
-            <div className="flex items-center justify-between">
-              <span className="stat-widget-label">This week</span>
-              <CalendarDays className="h-4 w-4 text-[#bf5af2]" />
-            </div>
-            <span className="stat-widget-value">{thisWeekHours}</span>
-            <p className="text-[11px] text-glass-subtle">
-              Synced when API provides weekly totals
-            </p>
-          </motion.div>
-
-          <motion.div className="stat-widget" whileHover={{ y: -2 }}>
-            <div className="flex items-center justify-between">
-              <span className="stat-widget-label">Pending tasks</span>
-              <ListTodo className="h-4 w-4 text-[#ffd60a]" />
-            </div>
-            <span className="stat-widget-value">{pendingTasks}</span>
-          </motion.div>
-
-          <motion.div className="stat-widget" whileHover={{ y: -2 }}>
-            <div className="flex items-center justify-between">
-              <span className="stat-widget-label">Break time</span>
-              <Coffee className="h-4 w-4 text-[#c4a882]" />
-            </div>
-            <span className="stat-widget-value tabular-nums">
-              {formatDurationHMS(totalBreakSeconds)}
-            </span>
-            {onBreak && (
-              <p className="text-xs font-medium text-[#ffd60a]">
-                Live · {formatDurationHMS(currentBreakOnlySeconds)}
-              </p>
-            )}
-          </motion.div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-          <GlassCard className="xl:col-span-2 !p-6 sm:!p-8">
-            <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-2">
-              <div className="flex flex-col gap-6">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">Live attendance</h3>
-                  <span className={`${statusClass} rounded-2xl px-2 py02 inline-flex items-center gap-2`}>
-                    <span
-                      className={`h-2 w-2 rounded-2xl ${
-                        isCheckedOut
-                          ? "bg-white/40"
-                          : onBreak
-                            ? "bg-[#ffd60a]"
-                            : isCheckedIn
-                              ? "bg-[#64d2ff]  animate-pulse"
-                              : "bg-white/40"
-                      }`}
-                    />
+      <div className="dash-board">
+        <motion.div
+          className="dash-board-mid"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+        >
+          <section className="dash-live">
+            <div className="dash-live-top">
+              <div className="min-w-0">
+                <p className="dash-kicker">Live attendance</p>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <h2 className="dash-live-title !mt-0">
+                    {greeting}, {name}
+                  </h2>
+                  <span className={`dash-status-chip ${statusTone}`}>
+                    <span className="dash-status-dot" />
                     {statusLabel}
                   </span>
                 </div>
-
-                <div className="flex flex-wrap gap-3">
-                  {!isCheckedIn && (
-                    <motion.button
-                      type="button"
-                      onClick={handleCheckIn}
-                      className="punch-glow-btn flex min-w-[200px] items-center justify-center gap-3"
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                    >
-                      Punch in
-                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/20">
-                        <Play className="h-4 w-4 fill-white" />
-                      </span>
-                    </motion.button>
-                  )}
-
-                  {isCheckedIn && !isCheckedOut && (
-                    <>
-                      <GlassButton
-                        variant="secondary"
-                        onClick={handleBreak}
-                        className={onBreak ? "!border-[#ff9f0a]/40" : ""}
-                      >
-                        <Coffee className="h-4 w-4" />
-                        {onBreak ? "End break" : "Start break"}
-                      </GlassButton>
-                      <GlassButton
-                        variant="danger"
-                        onClick={() => setCheckOutConfirmOpen(true)}
-                      >
-                        Check out
-                      </GlassButton>
-                    </>
-                  )}
-                </div>
-
-                <p className="text-sm text-glass-muted">
-                  Last punch out:{" "}
-                  <span className="font-medium theme-text">
-                    {lastPunchOut || "No previous record"}
-                  </span>
+                <p className="dash-live-sub">
+                  {!isCheckedIn
+                    ? "Punch in to start tracking your workday."
+                    : isCheckedOut
+                      ? `Checked out${lastPunchOut ? ` · ${lastPunchOut}` : ""}.`
+                      : onBreak
+                        ? "You're on a break. Resume when you're ready."
+                        : checkInTime
+                          ? `Working · since ${checkInTime}`
+                          : "Working"}
                 </p>
-
-                <div>
-                  <div className="mb-2 flex justify-between text-xs text-glass-subtle">
-                    <span>Progress toward {TARGET_DAY_HOURS}h</span>
-                    <span>{dayProgressPercent}%</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-white/8">
-                    <motion.div
-                      className={`h-full rounded-full ${isLiveWorking ? "production-progress-fill" : ""}`}
-                      style={
-                        isLiveWorking
-                          ? undefined
-                          : {
-                              background:
-                                "linear-gradient(90deg, #0a84ff, #5e5ce6)",
-                            }
-                      }
-                      initial={{ width: 0 }}
-                      animate={{ width: `${dayProgressPercent}%` }}
-                      transition={
-                        isLiveWorking
-                          ? { duration: 0.35, ease: "easeOut" }
-                          : { duration: 0.8, ease: [0.22, 1, 0.36, 1] }
-                      }
-                    />
-                  </div>
-                </div>
               </div>
+              <div className="dash-live-actions">
+                {!isCheckedIn && (
+                  <motion.button
+                    type="button"
+                    onClick={handleCheckIn}
+                    className="punch-glow-btn flex items-center justify-center gap-2 !rounded-2xl !px-5 !py-2.5 !text-sm"
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Punch in
+                    <Play className="h-3.5 w-3.5 fill-white" />
+                  </motion.button>
+                )}
+                {isCheckedIn && !isCheckedOut && (
+                  <>
+                    <GlassButton variant="secondary" onClick={handleBreak}>
+                      <Coffee className="h-4 w-4" />
+                      {onBreak ? "End break" : "Start break"}
+                    </GlassButton>
+                    <GlassButton
+                      variant="danger"
+                      onClick={() => setCheckOutConfirmOpen(true)}
+                    >
+                      Check out
+                    </GlassButton>
+                  </>
+                )}
+              </div>
+            </div>
 
-              <div className="flex flex-col items-center gap-5">
-                <ProgressRing
-                  percent={dayProgressPercent}
-                  size={140}
-                  label="Today"
-                  variant={isLiveWorking ? "orange" : "blue"}
-                />
-                <div className="grid w-full grid-cols-2 gap-3">
-                  <div className="glass-card-sm p-4 text-center">
-                    <p className="text-xs text-glass-subtle">Check-in</p>
-                    <p className="mt-1 font-semibold tabular-nums">
-                      {checkInTime || "—"}
-                    </p>
+            <div className="dash-live-body">
+              <div className="dash-live-main">
+                <div className="dash-live-chips">
+                  <div className="dash-live-chip">
+                    <span>Check-in</span>
+                    <strong className="tabular-nums">{checkInTime || "—"}</strong>
                   </div>
-                  <div className="glass-card-sm p-4 text-center">
-                    <p className="text-xs text-glass-subtle">Break</p>
-                    <p className="mt-1 font-semibold tabular-nums">
+                  <div className="dash-live-chip">
+                    <span>Break</span>
+                    <strong className="tabular-nums">
                       {onBreak
                         ? formatDurationHMS(currentBreakOnlySeconds)
-                        : breaks.length
-                          ? formatDurationHMS(totalBreakSeconds)
-                          : "None"}
-                    </p>
+                        : formatDurationHMS(totalBreakSeconds)}
+                    </strong>
                   </div>
                 </div>
 
-                {breaks.length > 0 && (
-                  <div className="glass-card-sm w-full overflow-hidden !rounded-2xl !p-0">
-                    <p className="border-b border-white/8 px-3 py-2 text-xs font-semibold text-glass-muted">
-                      Break log
-                    </p>
-                    <ul className="max-h-36 divide-y divide-white/5 overflow-y-auto text-xs">
-                      {breaks.map((b, i) => {
-                        const s = breakStart(b);
-                        const e = breakEnd(b);
-                        const durSec =
-                          s && e
-                            ? Math.max(
-                                0,
-                                Math.floor(
-                                  (new Date(e) - new Date(s)) / 1000
-                                )
-                              )
-                            : s && !e
-                              ? Math.max(
-                                  0,
-                                  Math.floor(
-                                    (Date.now() - new Date(s).getTime()) /
-                                      1000
-                                  )
-                                )
-                              : null;
+                {breaks.length > 0 ? (
+                  <div className="dash-break-log dash-break-log-compact">
+                    <p className="dash-break-log-title">Break log</p>
+                    <ul>
+                      {breaks.slice(-4).map((b, i) => {
+                        const range = formatBreakRange(b);
+                        const dur = breakDurationSeconds(b, breakClockMs);
+                        if (!range) return null;
                         return (
-                          <li
-                            key={i}
-                            className="flex justify-between gap-2 px-3 py-2 text-glass-muted"
-                          >
-                            <span className="tabular-nums">
-                              {formatTimeShort(s)} →{" "}
-                              {e ? formatTimeShort(e) : "…"}
-                            </span>
-                            <span className="shrink-0 font-medium theme-text">
-                              {durSec != null
-                                ? formatDurationHMS(durSec)
-                                : "—"}
+                          <li key={i}>
+                            <span className="tabular-nums">{range}</span>
+                            <span className="tabular-nums font-medium theme-text">
+                              {dur != null ? formatDurationHMS(dur) : "—"}
                             </span>
                           </li>
                         );
                       })}
                     </ul>
                   </div>
+                ) : (
+                  <p className="dash-live-empty-break">No breaks logged yet today.</p>
                 )}
+
+                <div className="dash-live-progress">
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-glass-subtle">
+                      Progress toward {TARGET_DAY_HOURS}h
+                    </span>
+                    <span className="text-[11px] font-semibold tabular-nums theme-text">
+                      {dayProgressPercent}%
+                    </span>
+                  </div>
+                  <div className="dash-mini-bar">
+                    <span
+                      className={isLiveWorking ? "production-progress-fill" : ""}
+                      style={{ width: `${dayProgressPercent}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="dash-live-ring">
+                <ProgressRing
+                  percent={dayProgressPercent}
+                  size={112}
+                  stroke={9}
+                  label="TODAY"
+                  variant={isLiveWorking ? "orange" : "blue"}
+                />
               </div>
             </div>
-          </GlassCard>
+          </section>
 
-          <GlassCard className="!p-5">
-            <div className="mb-4 flex items-center gap-2.5">
-              <EirmonLogo size={28} className="!rounded-xl shadow-md shadow-[#0a84ff]/20" />
-              <h3 className="font-semibold">AI suggestions</h3>
+          <GlassCard className="dash-suggest !flex h-full min-h-0 flex-col !p-3">
+            <div className="mb-2 flex items-center gap-2.5">
+              <div className="dash-ai-avatar !h-9 !w-9">
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold">AI Suggestions</h3>
+                  <span className="dash-beta">Beta</span>
+                </div>
+                <p className="text-[10px] text-glass-subtle">Reminders & workday tips</p>
+              </div>
             </div>
-            <ul className="space-y-3 text-sm text-glass-muted">
-              <li className="rounded-2xl border border-white/8 bg-white/4 p-3">
-                {pendingTasks > 0
-                  ? `You have ${pendingTasks} open task${pendingTasks === 1 ? "" : "s"} to review`
-                  : "You're all caught up on tasks"}
-              </li>
-              <li className="rounded-2xl border border-white/8 bg-white/4 p-3">
-                You&apos;re {dayProgressPercent}% toward your {TARGET_DAY_HOURS}h goal
-              </li>
-              <li className="rounded-2xl border border-white/8 bg-white/4 p-3">
-                <Link to="/eirmon-ai" className="inline-flex items-center gap-1 text-[#64d2ff] hover:underline">
-                  Ask Eirmon AI <ArrowUpRight className="h-3.5 w-3.5" />
-                </Link>
-              </li>
+            <ul className="dash-suggest-list">
+              {suggestions.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <li key={item.id}>
+                    <Icon className="h-3.5 w-3.5 shrink-0 text-[#64d2ff]" />
+                    <span className="line-clamp-2">{item.text}</span>
+                  </li>
+                );
+              })}
             </ul>
+            <Link to="/eirmon-ai" className="dash-ai-cta !mt-2 !py-2.5 !text-xs">
+              <Sparkles className="h-3.5 w-3.5" />
+              Ask Eirmon AI
+            </Link>
           </GlassCard>
-        </div>
+        </motion.div>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <GlassCard>
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold">Recent tasks</h3>
-              <Link
-                to="/tasks"
-                className="inline-flex items-center gap-1 text-sm font-medium text-[#64d2ff] hover:underline"
-              >
+        <motion.div
+          className="dash-board-bottom"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05, duration: 0.25 }}
+        >
+          <GlassCard className="dash-recent !flex h-full min-h-0 flex-col !p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Recent tasks</h3>
+              <Link to="/tasks" className="dash-link">
                 View all <ArrowUpRight className="h-3.5 w-3.5" />
               </Link>
             </div>
-            <ul className="space-y-2">
-              {tasksLoading ? (
-                <li className="py-8 text-center text-sm text-glass-muted">
-                  {/* Loading tasks… */}
-                </li>
-              ) : recentTasks.length === 0 ? (
-                <li className="rounded-2xl border border-[var(--theme-glass-border-soft)] bg-[var(--theme-hover)] px-4 py-8 text-center text-sm text-glass-muted">
-                  No tasks yet.{" "}
-                  <Link to="/tasks/create" className="text-[#64d2ff] hover:underline">
-                    Create one
-                  </Link>
-                </li>
-              ) : (
-                recentTasks.map((task) => (
+            {recentTasks.length === 0 ? (
+              <div className="dash-recent-empty">
+                No tasks yet.{" "}
+                <Link to="/tasks/create" className="text-[#64d2ff] hover:underline">
+                  Create one
+                </Link>
+              </div>
+            ) : (
+              <ul className="min-h-0 flex-1 space-y-1.5 overflow-hidden">
+                {recentTasks.slice(0, RECENT_TASKS_LIMIT).map((task) => (
                   <li key={task.id}>
-                    <Link
-                      to="/tasks"
-                      className="task-row-glass flex items-center gap-3 transition hover:bg-[var(--theme-hover-strong)]"
-                    >
-                      <span className="min-w-0 flex-1 truncate font-medium theme-text">
-                        {task.title || "Untitled task"}
-                      </span>
-                      <span
-                        className={`shrink-0 capitalize px-1 py-1 rounded-2xl ${taskStatusBadgeClass(task.status)}`}
-                      >
-                        {formatTaskStatus(task.status)}
-                      </span>
+                    <Link to="/tasks" className="dash-focus-row !py-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium theme-text">
+                          {task.title || "Untitled task"}
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-glass-subtle">
+                          {formatTaskStatus(task.status)}
+                        </p>
+                      </div>
+                      <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-glass-subtle" />
                     </Link>
                   </li>
-                ))
-              )}
-            </ul>
+                ))}
+              </ul>
+            )}
           </GlassCard>
 
-          <GlassCard>
-            <div className="mb-5 flex items-center justify-between gap-3">
-              <h3 className="text-lg font-semibold">Quick links</h3>
+          <GlassCard className="dash-links !flex h-full min-h-0 flex-col !p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold">Quick links</h3>
               <GlassButton
-                variant="secondary"
-                className="!px-3 !py-2 !text-xs"
+                variant="ghost"
+                className="!px-2 !py-1 !text-[11px]"
                 onClick={handleCheckForUpdates}
                 disabled={checkingUpdate}
               >
@@ -744,27 +665,30 @@ export default function Home() {
               </GlassButton>
             </div>
             {updateHint ? (
-              <p className="mb-4 text-xs text-glass-subtle">{updateHint}</p>
+              <p className="mb-1.5 truncate text-[10px] text-glass-subtle">{updateHint}</p>
             ) : null}
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="dash-links-grid">
               {[
-                { to: "/attendance", label: "Attendance", icon: CalendarDays },
-                { to: "/tasks", label: "Tasks", icon: ListTodo },
-                { to: "/expense", label: "Expenses", icon: Activity },
-                { to: "/budgets", label: "Budgets", icon: Bell },
-              ].map(({ to, label, icon: Icon }) => (
-                <Link
-                  key={to}
-                  to={to}
-                  className="glass-card-sm flex flex-col items-center gap-2 p-4 text-center transition hover:bg-white/10"
-                >
-                  <Icon className="h-6 w-6 text-[#64d2ff]" />
-                  <p className="text-sm font-medium">{label}</p>
-                </Link>
-              ))}
+                { to: "/attendance", label: "Attendance", icon: CalendarDays, tone: "blue" },
+                { to: "/tasks", label: "Tasks", icon: ListTodo, tone: "violet" },
+                { to: "/expense", label: "Expenses", icon: Wallet, tone: "emerald" },
+                { to: "/budgets", label: "Budgets", icon: BarChart3, tone: "rose" },
+              ].map((action) => {
+                const ActionIcon = action.icon;
+                return (
+                  <Link
+                    key={action.to}
+                    to={action.to}
+                    className={`dash-quick dash-quick-${action.tone}`}
+                  >
+                    <ActionIcon className="h-4 w-4" />
+                    {action.label}
+                  </Link>
+                );
+              })}
             </div>
           </GlassCard>
-        </div>
+        </motion.div>
       </div>
 
       {checkOutConfirmOpen && (
@@ -776,12 +700,10 @@ export default function Home() {
             className="mx-4 w-full max-w-sm"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="mb-2 text-lg font-bold theme-text">
-              Confirm check out?
-            </h3>
+            <h3 className="mb-2 text-lg font-bold theme-text">Confirm check out?</h3>
             <p className="mb-6 text-glass-muted">
-              Are you sure you want to punch out for today? You can check in
-              again later if needed.
+              Are you sure you want to punch out for today? You can check in again later
+              if needed.
             </p>
             <div className="flex justify-end gap-3">
               <GlassButton
@@ -802,6 +724,11 @@ export default function Home() {
           </GlassCard>
         </div>
       )}
+
+      <PunchCelebration
+        kind={punchCelebration}
+        onDone={() => setPunchCelebration(null)}
+      />
     </AppLayout>
   );
 }

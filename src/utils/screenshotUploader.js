@@ -51,6 +51,6 @@ export async function captureAndUpload(token) {
       body: formData,
     });
   } catch (err) {
-    console.error("[Tracker] Screenshot upload failed:", err);
+    console.error("[Tracker] Screenshot upload failed:", err?.message || err);
   }
 }

@@ -53,6 +53,11 @@ const MEETING_CALL_EVENTS = [
   "MeetingCallIncoming",
 ];
 
+const ADMIN_NOTIFICATION_EVENTS = [
+  ".NewAdminNotification",
+  "NewAdminNotification",
+];
+
 function bindEvents(channel, handlers) {
   const bindings = [];
   const recentMessageKeys = new Set();
@@ -142,6 +147,13 @@ function bindEvents(channel, handlers) {
   if (handlers.onMeetingCallIncoming) {
     for (const ev of MEETING_CALL_EVENTS) {
       const callback = (payload) => handlers.onMeetingCallIncoming(payload);
+      channel.listen(ev, callback);
+      bindings.push([ev, callback]);
+    }
+  }
+  if (handlers.onAdminNotification) {
+    for (const ev of ADMIN_NOTIFICATION_EVENTS) {
+      const callback = (payload) => handlers.onAdminNotification(payload);
       channel.listen(ev, callback);
       bindings.push([ev, callback]);
     }

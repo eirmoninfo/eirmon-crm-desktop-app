@@ -1,6 +1,74 @@
-import { desktopCapturer, dialog, ipcMain, session, systemPreferences, type BrowserWindow } from 'electron';
+import {
+  app,
+  desktopCapturer,
+  dialog,
+  ipcMain,
+  screen,
+  session,
+  shell,
+  systemPreferences,
+  type BrowserWindow,
+} from 'electron';
 import log from 'electron-log';
 import { isTrustedSender } from '../utils/ipcTrust.js';
+
+function macScreenPermissionStatus(): string {
+  if (
+    process.platform !== 'darwin' ||
+    typeof systemPreferences?.getMediaAccessStatus !== 'function'
+  ) {
+    return 'granted';
+  }
+  try {
+    return systemPreferences.getMediaAccessStatus('screen') || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function macScreenPermissionHint(): string {
+  const appLabel = app.isPackaged
+    ? 'Eirmon One'
+    : 'Electron (or your terminal / Cursor if you launch from there)';
+  return (
+    `Enable Screen Recording for ${appLabel} in System Settings → Privacy & Security → Screen Recording, ` +
+    'then fully quit and restart this app. Without that, macOS only allows capturing this window — not the full desktop.'
+  );
+}
+
+async function openMacScreenRecordingSettings(): Promise<void> {
+  if (process.platform !== 'darwin') return;
+  try {
+    await shell.openExternal(
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
+    );
+  } catch (err) {
+    log.warn('[take-screenshot] Could not open Screen Recording settings:', err);
+  }
+}
+
+function pickPrimaryScreenSource(
+  sources: Electron.DesktopCapturerSource[]
+): Electron.DesktopCapturerSource | null {
+  if (!sources.length) return null;
+
+  const withThumb = sources.filter((s) => s.thumbnail && !s.thumbnail.isEmpty());
+  const pool = withThumb.length ? withThumb : sources;
+
+  try {
+    const primaryId = String(screen.getPrimaryDisplay().id);
+    const byDisplay = pool.find((s) => String(s.display_id) === primaryId);
+    if (byDisplay) return byDisplay;
+  } catch {
+    /* ignore */
+  }
+
+  return (
+    pool.find((s) => /entire screen|screen 1|display 1|built-in/i.test(s.name)) ||
+    pool[0] ||
+    null
+  );
+}
 
 export function registerScreenCaptureIpc(mainWindow: BrowserWindow | null): void {
   let selectedLiveScreenSourceId: string | null = null;
@@ -16,20 +84,14 @@ export function registerScreenCaptureIpc(mainWindow: BrowserWindow | null): void
     if (process.platform === 'darwin') mainWindow.moveTop();
   };
 
-  // Screenshot handler
+  // Full-desktop screenshot for attendance (never fall back to app-window only).
   const handleScreenshot = async (): Promise<string> => {
-    if (
-      process.platform === 'darwin' &&
-      typeof systemPreferences?.getMediaAccessStatus === 'function'
-    ) {
-      try {
-        const st = systemPreferences.getMediaAccessStatus('screen');
-        if (st && st !== 'granted') {
-          log.info('[take-screenshot] macOS screen media status:', st);
-        }
-      } catch {
-        /* ignore */
-      }
+    const permission = macScreenPermissionStatus();
+    log.info('[take-screenshot] screen permission:', permission);
+
+    if (process.platform === 'darwin' && permission === 'denied') {
+      void openMacScreenRecordingSettings();
+      throw new Error(macScreenPermissionHint());
     }
 
     const thumbnailSizes = [
@@ -38,6 +100,8 @@ export function registerScreenCaptureIpc(mainWindow: BrowserWindow | null): void
       { width: 800, height: 600 },
     ];
     let lastErr: Error | null = null;
+    let sawEmptyThumbs = false;
+
     for (const thumbnailSize of thumbnailSizes) {
       try {
         const sources = await desktopCapturer.getSources({
@@ -45,37 +109,48 @@ export function registerScreenCaptureIpc(mainWindow: BrowserWindow | null): void
           thumbnailSize,
           fetchWindowIcons: false,
         });
-        const source =
-          sources.find((s) => s.thumbnail && !s.thumbnail.isEmpty()) ||
-          sources[0];
+
+        if (!sources.length) {
+          lastErr = new Error('No display sources from desktopCapturer.');
+          continue;
+        }
+
+        const emptyCount = sources.filter((s) => !s.thumbnail || s.thumbnail.isEmpty()).length;
+        if (emptyCount === sources.length) {
+          sawEmptyThumbs = true;
+          log.warn(
+            `[take-screenshot] ${sources.length} screen source(s) but empty thumbnails (permission likely missing)`
+          );
+          continue;
+        }
+
+        const source = pickPrimaryScreenSource(sources);
         if (source?.thumbnail && !source.thumbnail.isEmpty()) {
+          log.info(
+            `[take-screenshot] Captured display: ${source.name} (${thumbnailSize.width}x${thumbnailSize.height})`
+          );
           return source.thumbnail.toPNG().toString('base64');
         }
       } catch (e) {
         lastErr = e as Error;
+        log.warn('[take-screenshot] getSources failed:', lastErr.message);
       }
     }
 
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      try {
-        const img = await mainWindow.webContents.capturePage();
-        if (img && !img.isEmpty()) {
-          log.warn(
-            '[take-screenshot] desktopCapturer failed; using main window capturePage fallback'
-          );
-          return img.toPNG().toString('base64');
-        }
-      } catch (e) {
-        lastErr = e as Error;
-      }
+    // Do NOT fall back to webContents.capturePage() — that only captures the Eirmon
+    // window and looks like "screenshots of the app only" on macOS.
+
+    if (process.platform === 'darwin' && (sawEmptyThumbs || permission !== 'granted')) {
+      void openMacScreenRecordingSettings();
+      throw new Error(macScreenPermissionHint());
     }
 
     const hint =
       process.platform === 'darwin'
-        ? 'Enable Screen Recording for Electron (dev) or Eirmon CRM in System Settings → Privacy & Security, then fully quit and restart this app.'
+        ? macScreenPermissionHint()
         : 'Check OS screen / display capture permissions, then restart the app.';
     throw new Error(
-      [lastErr?.message || 'Screen capture failed.', hint].filter(Boolean).join(' ')
+      [lastErr?.message || 'Full-screen capture failed.', hint].filter(Boolean).join(' ')
     );
   };
 
@@ -101,10 +176,7 @@ export function registerScreenCaptureIpc(mainWindow: BrowserWindow | null): void
     if (!isTrusted(event)) return { cancelled: true, permission: 'denied' };
     liveScreenConsentGranted = true;
 
-    const permission =
-      process.platform === 'darwin' && systemPreferences.getMediaAccessStatus
-        ? systemPreferences.getMediaAccessStatus('screen')
-        : 'granted';
+    const permission = macScreenPermissionStatus();
     log.info('[live-screen] Screen recording permission:', permission);
 
     const sources = await desktopCapturer.getSources({
@@ -114,10 +186,9 @@ export function registerScreenCaptureIpc(mainWindow: BrowserWindow | null): void
     });
     if (!sources.length) return { cancelled: true, permission };
 
-    // Prefer primary / "Entire screen" without showing a picker dialog.
-    const source =
-      sources.find((s) => /entire screen|screen 1|display 1|built-in/i.test(s.name)) ||
-      sources[0];
+    const source = pickPrimaryScreenSource(sources);
+    if (!source) return { cancelled: true, permission };
+
     selectedLiveScreenSourceId = source.id;
     log.info('[live-screen] Auto-selected display:', source.name);
     return { cancelled: false, permission, source: { id: source.id, name: source.name } };
@@ -158,10 +229,7 @@ export function registerScreenCaptureIpc(mainWindow: BrowserWindow | null): void
       const match = sources.find((source) => source.id === preferredId);
       if (match) return match;
     }
-    return (
-      sources.find((source) => /entire screen|screen 1|display 1|built-in/i.test(source.name)) ||
-      sources[0]
-    );
+    return pickPrimaryScreenSource(sources);
   };
 
   // Live screen + meeting share both use getDisplayMedia.
@@ -186,30 +254,25 @@ export function registerScreenCaptureIpc(mainWindow: BrowserWindow | null): void
         };
 
         try {
-          if (
-            process.platform === 'darwin' &&
-            typeof systemPreferences?.getMediaAccessStatus === 'function'
-          ) {
-            const st = systemPreferences.getMediaAccessStatus('screen');
-            if (st && st !== 'granted') {
-              log.warn('[live-screen] macOS screen recording status:', st);
-            }
+          const st = macScreenPermissionStatus();
+          if (st && st !== 'granted') {
+            log.warn('[live-screen] macOS screen recording status:', st);
           }
 
           const preferredId = liveScreenConsentGranted ? selectedLiveScreenSourceId : null;
-          const screen = await pickScreenSource(preferredId);
+          const screenSource = await pickScreenSource(preferredId);
 
           selectedLiveScreenSourceId = null;
           liveScreenConsentGranted = false;
 
-          if (!screen) {
+          if (!screenSource) {
             log.error('[live-screen] No display source available');
             respond({});
             return;
           }
 
-          log.info('[live-screen] Granting display media:', screen.name);
-          respond({ video: screen });
+          log.info('[live-screen] Granting display media:', screenSource.name);
+          respond({ video: screenSource });
         } catch (err) {
           log.error('[live-screen] display media handler failed:', err);
           selectedLiveScreenSourceId = null;

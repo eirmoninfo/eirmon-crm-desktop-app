@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 export default function ProgressRing({
   percent = 0,
   size = 120,
@@ -5,23 +7,30 @@ export default function ProgressRing({
   label,
   variant = "blue",
 }) {
+  const uid = useId().replace(/:/g, "");
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (percent / 100) * circumference;
   const isOrange = variant === "orange";
+  const gradId = isOrange ? `ringOrange-${uid}` : `ringBlue-${uid}`;
 
   return (
     <div className="relative inline-flex items-center justify-center">
       <svg width={size} height={size} className="progress-ring">
         <defs>
-          <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#0a84ff" />
-            <stop offset="100%" stopColor="#5e5ce6" />
-          </linearGradient>
-          <linearGradient id="ringGradientOrange" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#ffd699" />
-            <stop offset="45%" stopColor="#ffab40" />
-            <stop offset="100%" stopColor="#e8940a" />
+          <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
+            {isOrange ? (
+              <>
+                <stop offset="0%" stopColor="#ffd699" />
+                <stop offset="45%" stopColor="#ffab40" />
+                <stop offset="100%" stopColor="#e8940a" />
+              </>
+            ) : (
+              <>
+                <stop offset="0%" stopColor="#0a84ff" />
+                <stop offset="100%" stopColor="#5e5ce6" />
+              </>
+            )}
           </linearGradient>
         </defs>
         <circle
@@ -39,15 +48,16 @@ export default function ProgressRing({
           r={radius}
           fill="none"
           strokeWidth={stroke}
+          stroke={`url(#${gradId})`}
           strokeDasharray={circumference}
           strokeDashoffset={offset}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span
-          className={`text-2xl font-bold tabular-nums ${
-            isOrange ? "progress-ring-label-production" : "theme-text"
-          }`}
+          className={`font-bold tabular-nums ${
+            size < 60 ? "text-[10px]" : "text-2xl"
+          } ${isOrange ? "progress-ring-label-production" : "theme-text"}`}
         >
           {percent}%
         </span>

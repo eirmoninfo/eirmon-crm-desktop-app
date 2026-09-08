@@ -90,15 +90,17 @@ export async function bootstrapElectron(token) {
 
       startIdleTracking(config, token);
 
-      if (shouldCaptureScreenshots(getStoredUser(), config)) {
-        startAttendanceScreenshotSync(token, {
-          screenshot_min_interval: config.screenshot_min_interval,
-          screenshot_max_interval: config.screenshot_max_interval,
-          enable_screenshots: config.enable_screenshots,
-          user_screenshot_enabled: config.user_screenshot_enabled,
-        });
-      } else {
-        console.log("[Tracker] Screenshots skipped for admin/disabled user");
+      // Always run presence/heartbeat sync while punched in so Live Monitor
+      // can show Desktop online; screenshot loop stays gated inside the sync.
+      startAttendanceScreenshotSync(token, {
+        screenshot_min_interval: config.screenshot_min_interval,
+        screenshot_max_interval: config.screenshot_max_interval,
+        enable_screenshots: config.enable_screenshots,
+        user_screenshot_enabled: config.user_screenshot_enabled,
+      });
+
+      if (!shouldCaptureScreenshots(getStoredUser(), config)) {
+        console.log("[Tracker] Screenshots disabled for this user; presence heartbeat still active");
       }
 
       trackerStarted = true;

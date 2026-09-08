@@ -10,6 +10,11 @@ import { getToken } from '@/utils/storage';
 import { getToastLogoIcon } from '@/utils/appBrand';
 import { showAppNotification } from '@/utils/appNotification';
 import {
+  startDesktopNotificationSync,
+  stopDesktopNotificationSync,
+  deliverServerNotification,
+} from '@/utils/desktopNotificationSync';
+import {
   isViewingTask,
   pushWorkspaceNotification,
   taskDesktopRoute,
@@ -54,6 +59,7 @@ const EirmonAi = lazy(() => import('@/pages/EirmonAi'));
 const MeetingsPage = lazy(() => import('@/features/meetings/pages/MeetingsPage'));
 const CreateMeetingPage = lazy(() => import('@/features/meetings/pages/CreateMeetingPage'));
 const MeetingRoomPage = lazy(() => import('@/features/meetings/pages/MeetingRoomPage'));
+const Leads = lazy(() => import('@/pages/Leads'));
 const Unauthorized = lazy(() => import('@/pages/Unauthorized'));
 
 const CHAT_UNREAD_POLL_MS = 5000;
@@ -260,6 +266,14 @@ function App() {
     window.addEventListener('collabflow:team-chat-message', onTeamChatMessage as EventListener);
     window.addEventListener('collabflow:task-assigned', onTaskAssigned as EventListener);
     window.addEventListener('collabflow:task-activity', onTaskActivity as EventListener);
+    const onAdminNotification = (event: CustomEvent) => {
+      deliverServerNotification(event?.detail, { source: 'echo' });
+    };
+    window.addEventListener(
+      'collabflow:admin-notification',
+      onAdminNotification as EventListener
+    );
+    startDesktopNotificationSync();
     const stopNotificationActions = window.api?.onAppNotificationAction?.(
       ({ route }: { route?: string }) => {
         if (
@@ -278,6 +292,11 @@ function App() {
       window.removeEventListener('collabflow:team-chat-message', onTeamChatMessage as EventListener);
       window.removeEventListener('collabflow:task-assigned', onTaskAssigned as EventListener);
       window.removeEventListener('collabflow:task-activity', onTaskActivity as EventListener);
+      window.removeEventListener(
+        'collabflow:admin-notification',
+        onAdminNotification as EventListener
+      );
+      stopDesktopNotificationSync();
       if (typeof stopNotificationActions === 'function') stopNotificationActions();
     };
   }, [navigate]);
@@ -417,6 +436,13 @@ function App() {
             route: `/meetings/${meetingId}`,
             silent: true,
           });
+        },
+        onAdminNotification: (payload) => {
+          window.dispatchEvent(
+            new CustomEvent('collabflow:admin-notification', {
+              detail: payload,
+            })
+          );
         },
       });
       try {
@@ -793,6 +819,17 @@ function App() {
             </PermissionRoute>
           </ProtectedRoute>
         } />
+
+        <Route
+          path="/leads"
+          element={
+            <ProtectedRoute>
+              <PermissionRoute anyOf={[P.VIEW_LEADS, P.CREATE_LEADS, P.EDIT_LEADS]}>
+                <Suspense fallback={<LoadingFallback />}><Leads /></Suspense>
+              </PermissionRoute>
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </>
   );

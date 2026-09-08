@@ -17,12 +17,8 @@ const POLL_MS = 15_000;
 
 async function tick() {
   const token = authToken || getToken();
-  if (!token || typeof window === "undefined" || !window.api?.takeScreenshot) {
-    return;
-  }
-
-  if (!shouldCaptureScreenshots(getStoredUser(), screenshotCfg)) {
-    stopCapture("admin or screenshot capture disabled");
+  // Presence heartbeat only needs Electron + auth; screenshots need takeScreenshot.
+  if (!token || typeof window === "undefined" || !window.api) {
     return;
   }
 
@@ -44,12 +40,19 @@ async function tick() {
       return;
     }
 
+    // Presence heartbeat keeps Live Monitor "Desktop" status green while punched in,
+    // even when screenshots are disabled for this user.
     const heartbeat = await apiRequest("/attendance/heartbeat", {
       method: "POST",
       body: { desktop_state: "active" },
     });
     const heartbeatData = unwrapApiBody(heartbeat) ?? {};
+
+    const canTakeShot = typeof window.api?.takeScreenshot === "function";
+    const screenshotsAllowed =
+      canTakeShot && shouldCaptureScreenshots(getStoredUser(), screenshotCfg);
     const enable =
+      screenshotsAllowed &&
       session.attendance?.screenshot_capture_enabled !== false &&
       heartbeatData.screenshot_capture_enabled !== false;
 
@@ -63,7 +66,13 @@ async function tick() {
         console.log("[Tracker] Screenshots active (online, punched in, not on break)");
       }
     } else {
-      stopCapture("disabled by admin");
+      stopCapture(
+        !canTakeShot
+          ? "screenshot API unavailable"
+          : screenshotsAllowed
+            ? "disabled by admin"
+            : "admin or screenshot capture disabled"
+      );
     }
   } catch (e) {
     console.warn("[Tracker] attendance screenshot sync:", e);

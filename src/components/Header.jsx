@@ -362,9 +362,10 @@ export default function Header({
                   <X className="h-4 w-4" />
                 </button>
               </div>
+
               {notifications.length === 0 ? (
                 <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-glass-muted">
-                  You&apos;re all caught up. No new notifications.
+                  You&apos;re all caught up.
                 </div>
               ) : (
                 <div className="min-h-0 flex-1 overflow-y-auto p-3">

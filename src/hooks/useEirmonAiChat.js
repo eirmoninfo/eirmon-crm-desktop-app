@@ -22,6 +22,7 @@ export function useEirmonAiChat({ userName, autoWelcome = true } = {}) {
   const [prompts, setPrompts] = useState(EIRMON_AI_AGENT_PROMPTS);
   const endRef = useRef(null);
   const bootstrappedRef = useRef(false);
+  const consumedPromptRef = useRef(null);
 
   const activeConversation =
     conversations.find((c) => c.id === activeId) ?? null;
@@ -208,6 +209,22 @@ export function useEirmonAiChat({ userName, autoWelcome = true } = {}) {
       location.pathname,
     ]
   );
+
+  // Deep-link from Leads (or elsewhere): /eirmon-ai with state.initialPrompt
+  useEffect(() => {
+    const prompt = location.state?.initialPrompt;
+    if (!prompt || typeof prompt !== "string") return;
+    const trimmed = prompt.trim();
+    if (!trimmed || consumedPromptRef.current === trimmed) return;
+    consumedPromptRef.current = trimmed;
+
+    window.history.replaceState({}, document.title);
+
+    const t = window.setTimeout(() => {
+      void sendMessage(trimmed);
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [location.state?.initialPrompt, sendMessage]);
 
   const clearCurrentChat = useCallback(() => {
     if (!activeId) return;

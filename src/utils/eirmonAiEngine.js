@@ -47,6 +47,7 @@ function greetingReply(name) {
 I can help with:
 • Attendance & punch in/out
 • Tasks & kanban board
+• Leads & follow-ups
 • Expenses & budgets
 • Team chat
 • Leave requests
@@ -170,12 +171,22 @@ Boliye Hinglish ya English mein. Main ye kar sakta hoon:
 Examples:
 • "Check me in"
 • "Show my tasks"
+• "Show hot leads"
+• "Show overdue leads"
+• "Create a new lead"
+• "Analyze lead Sandeep"
+• "Draft follow-up email for Gapsted"
 • "Show this month's attendance report"`,
     prompts: [
       "Check me in",
       "Show my attendance for today",
       "Show my tasks",
-      "Show overdue invoices",
+      "What needs my attention today?",
+      "Show follow-ups due today",
+      "Show overdue leads",
+      "Create a new lead",
+      "Analyze my hottest overdue lead",
+      "Draft a follow-up email for my top hot lead",
     ],
   };
 }
